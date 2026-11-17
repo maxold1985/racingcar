@@ -1,0 +1,10 @@
+build/
+build-*/
+.vs/
+*.obj
+*.o
+*.dll
+*.so
+*.a
+*.lib
+*.exe
