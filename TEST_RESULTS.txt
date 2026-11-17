@@ -1,0 +1,20 @@
+Testes executados no ambiente Linux (GCC 14.2 / CMake / Ninja).
+
+Nucleo C11:
+- Biblioteca compartilhada: compilada (libraycast_vehicle.so)
+- Biblioteca estatica: compilada (libraycast_vehicle_static.a)
+- ctest vehicle_core: PASSOU
+- Equilibrio estatico: altura ~0.981 m; velocidade vertical ~0.000 m/s
+- Aceleracao por 3 s: velocidade ~42.79 km/h
+- Frenagem: velocidade final ~0 km/h
+- Teste com direcao + frenagem por 10 s: comportamento numerico sem divergencia
+
+Wrapper Luau:
+- Sintaxe C++ verificada contra declaracoes do C API (stub local)
+- Linkagem/execucao real Luau NAO TESTADA neste ambiente,
+  pois nao foi possivel baixar luau-lang/luau pela rede.
+- Para testar o wrapper use o projeto CMake com RV_WITH_LUAU=ON no seu PC.
+
+Limitacoes:
+- Nao inclui colisao do chassi nem resposta contra obstaculos.
+- Raycast demo usa um plano infinito Y=0; mundo 3D real depende do host.
