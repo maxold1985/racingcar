@@ -33,6 +33,7 @@ struct CitySector { std::vector<CityInstance> instances; };
 struct CityChunk { std::unordered_map<std::int64_t,CitySector> sectors; std::size_t count=0; };
 static std::unordered_map<int,CityChunk> cityChunks;
 static std::unordered_map<int,Model> cityModels;
+static std::unordered_map<int,BoundingBox> cityBounds;
 static std::unordered_map<int,bool> cityMissing;
 static const char* cityNames[] = {
     "Street_2Lane", "Street_4WayIntersection", "Street_TIntersection",
@@ -109,6 +110,7 @@ static void loadOneCityModel() {
                 }
                 Model model=LoadModel(file.c_str());
                 if (IsModelValid(model)) {
+                    cityBounds.emplace(instance.model,GetModelBoundingBox(model));
                     cityModels.emplace(instance.model,model);
                     std::fprintf(stderr,"[CITY] Loaded: %s\\n",file.c_str());
                 } else {
@@ -141,7 +143,7 @@ static void drawCity(Vector3 cameraPosition) {
                 const auto it=cityModels.find(instance.model);
                 if (it!=cityModels.end())
                     {
-                    const BoundingBox bounds=GetModelBoundingBox(it->second);
+                    const BoundingBox& bounds=cityBounds.at(instance.model);
                     const float cx=(bounds.min.x+bounds.max.x)*0.5f*instance.scale;
                     const float cz=(bounds.min.z+bounds.max.z)*0.5f*instance.scale;
                     const float a=instance.rotation*DEG2RAD;
@@ -160,7 +162,7 @@ static void drawCity(Vector3 cameraPosition) {
 }
 static void unloadCity() {
     for (auto& item:cityModels) UnloadModel(item.second);
-    cityModels.clear();cityMissing.clear();cityChunks.clear();cityInstanceCount=0;
+    cityModels.clear();cityBounds.clear();cityMissing.clear();cityChunks.clear();cityInstanceCount=0;
 }
 static void updateCityScript(lua_State* L,Vector3 p) {
     lua_getglobal(L,"cityUpdate");
