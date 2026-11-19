@@ -2,6 +2,9 @@
 #include "raymath.h"
 #include <assimp/postprocess.h>
 #include <assimp/config.h>
+#include <assimp/material.h>
+#include <assimp/texture.h>
+#include <cstdint>
 #include <assimp/vector3.inl>
 #include <assimp/matrix4x4.inl>
 #include <algorithm>
@@ -137,6 +140,61 @@ float bindMatrixError(const aiMatrix4x4& m) {
            std::abs(m.b3)+std::abs(m.c1)+std::abs(m.c2)+
            std::abs(m.a4)+std::abs(m.b4)+std::abs(m.c4);
 }
+// Convert Assimp material textures into raylib textures. The importer owns
+// embedded image bytes; raylib owns the uploaded GPU textures.
+Texture2D loadAssimpTexture(const aiScene* scene,
+                            const std::filesystem::path& modelPath,
+                            const aiString& reference) {
+    const std::string name=reference.C_Str();
+    const aiTexture* embedded=scene->GetEmbeddedTexture(name.c_str());
+    if(embedded) {
+        Image image{};
+        if(embedded->mHeight==0) {
+            // Compressed embedded image (PNG/JPG/etc.).
+            const char* hint=embedded->achFormatHint;
+            std::string ext=(hint && hint[0])?std::string(".")+hint:".png";
+            image=LoadImageFromMemory(ext.c_str(),
+                reinterpret_cast<const unsigned char*>(embedded->pcData),
+                static_cast<int>(embedded->mWidth));
+        } else {
+            // Uncompressed aiTexel is BGRA; convert to RGBA explicitly.
+            const size_t count=size_t(embedded->mWidth)*embedded->mHeight;
+            if(count>0 && count<=size_t(INT32_MAX)/4) {
+                unsigned char* rgba=(unsigned char*)MemAlloc(count*4);
+                for(size_t i=0;i<count;++i) {
+                    const aiTexel& p=embedded->pcData[i];
+                    rgba[4*i]=p.r;rgba[4*i+1]=p.g;
+                    rgba[4*i+2]=p.b;rgba[4*i+3]=p.a;
+                }
+                image.data=rgba;
+                image.width=int(embedded->mWidth);
+                image.height=int(embedded->mHeight);
+                image.mipmaps=1;
+                image.format=PIXELFORMAT_UNCOMPRESSED_R8G8B8A8;
+            }
+        }
+        if(!IsImageValid(image)) return {};
+        Texture2D texture=LoadTextureFromImage(image);
+        UnloadImage(image);
+        return texture;
+    }
+    if(name.empty() || name[0]=='*') return {};
+    // FBX exporters sometimes store Windows absolute paths. Fall back to
+    // the filename next to the FBX when that original path is unavailable.
+    std::string normalized=name;
+    std::replace(normalized.begin(),normalized.end(),'\\','/');
+    const std::filesystem::path referenced=std::filesystem::u8path(normalized);
+    const auto relative=modelPath.parent_path()/referenced;
+    const auto adjacent=modelPath.parent_path()/referenced.filename();
+    for(const auto& candidate:{referenced,relative,adjacent}) {
+        const std::string path=candidate.u8string();
+        if(FileExists(path.c_str())) {
+            Texture2D texture=LoadTexture(path.c_str());
+            if(IsTextureValid(texture)) return texture;
+        }
+    }
+    return {};
+}
 Channels getChannels(const aiAnimation* a) {
     Channels channels;
     if(a) for(unsigned i=0;i<a->mNumChannels;++i)
@@ -164,6 +222,39 @@ bool RVAnimation::loadCharacter(const char* path) {
     gatherPose(scene_->mRootNode,aiMatrix4x4(),Channels{},0.0,targetBind_,&meshNodes);
     const float extreme=std::numeric_limits<float>::max();
     aiVector3D low(extreme,extreme,extreme),high(-extreme,-extreme,-extreme);
+    // Each Assimp mesh has its own material index. Cache GPU textures by
+    // material so meshes sharing a material also share the same texture.
+    std::vector<Material> importedMaterials;
+    importedMaterials.reserve(scene_->mNumMaterials);
+    for(unsigned i=0;i<scene_->mNumMaterials;++i) {
+        const aiMaterial* source=scene_->mMaterials[i];
+        Material material=LoadMaterialDefault();
+        aiColor4D color(1,1,1,1);
+        if(aiGetMaterialColor(source,AI_MATKEY_COLOR_DIFFUSE,&color)==AI_SUCCESS) {
+            material.maps[MATERIAL_MAP_DIFFUSE].color=Color{
+                (unsigned char)std::clamp(int(color.r*255),0,255),
+                (unsigned char)std::clamp(int(color.g*255),0,255),
+                (unsigned char)std::clamp(int(color.b*255),0,255),
+                (unsigned char)std::clamp(int(color.a*255),0,255)};
+        }
+        aiString path;
+        if(source->GetTexture(aiTextureType_BASE_COLOR,0,&path)!=AI_SUCCESS)
+            source->GetTexture(aiTextureType_DIFFUSE,0,&path);
+        if(path.length>0) {
+            Texture2D texture=loadAssimpTexture(scene_,
+                std::filesystem::u8path(characterPath_),path);
+            if(IsTextureValid(texture)) {
+                material.maps[MATERIAL_MAP_DIFFUSE].texture=texture;
+                ownedTextures_.push_back(texture);
+                std::fprintf(stderr,"FBX material %u: loaded albedo %s\n",
+                             i,path.C_Str());
+            } else {
+                std::fprintf(stderr,"FBX material %u: missing albedo %s\n",
+                             i,path.C_Str());
+            }
+        }
+        importedMaterials.push_back(material);
+    }
     unsigned totalBones=0, skippedBones=0, fallbackOffsets=0;
     for(unsigned mi=0;mi<scene_->mNumMeshes;++mi) {
         const aiMesh* src=scene_->mMeshes[mi];
@@ -256,7 +347,23 @@ bool RVAnimation::loadCharacter(const char* path) {
         part.weightSums.resize(part.bindVertices.size());
         UploadMesh(&mesh,true);
         part.model=LoadModelFromMesh(mesh);
+        if(src->mMaterialIndex<importedMaterials.size()) {
+            // LoadModelFromMesh owns a default material. Replace its color
+            // and albedo reference; texture lifetime is managed separately.
+            Material& target=part.model.materials[0];
+            const Material& source=importedMaterials[src->mMaterialIndex];
+            target.maps[MATERIAL_MAP_DIFFUSE].color=
+                source.maps[MATERIAL_MAP_DIFFUSE].color;
+            target.maps[MATERIAL_MAP_DIFFUSE].texture=
+                source.maps[MATERIAL_MAP_DIFFUSE].texture;
+        }
         parts_.push_back(std::move(part));
+    }
+    // LoadMaterialDefault allocates only material metadata; free it without
+    // unloading textures, which are owned by RVAnimation.
+    for(Material& material:importedMaterials) {
+        material.maps[MATERIAL_MAP_DIFFUSE].texture={};
+        UnloadMaterial(material);
     }
     if(parts_.empty()) { unload();return false; }
     center_=aiVector3D((low.x+high.x)*0.5f,low.y,(low.z+high.z)*0.5f);
@@ -596,7 +703,14 @@ void RVAnimation::draw(Vector3 position,float yaw) const {
                     Vector3{scale_,scale_,scale_},WHITE);
 }
 void RVAnimation::unload() {
-    for(Part& part:parts_) UnloadModel(part.model);
+    for(Part& part:parts_) {
+        // Prevent UnloadModel from unloading shared albedo textures.
+        for(int i=0;i<part.model.materialCount;++i)
+            part.model.materials[i].maps[MATERIAL_MAP_DIFFUSE].texture={};
+        UnloadModel(part.model);
+    }
+    for(Texture2D& texture:ownedTextures_) if(IsTextureValid(texture)) UnloadTexture(texture);
+    ownedTextures_.clear();
     parts_.clear();targetBind_.clear();clips_.clear();active_.clear();
     scene_=nullptr;character_.reset();characterPath_.clear();modelValid_=false;
     time_=0;finished_=false;warnedInvalidPose_=false;
