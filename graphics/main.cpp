@@ -214,7 +214,8 @@ int main(int argc, char** argv) {
                     if (idlePath) player.loadAnimation("Idle",idlePath);
                     if (walkingPath) player.loadAnimation("Walking",walkingPath);
                     if (enterPath) player.loadAnimation("EnterCar",enterPath);
-                    player.playAnimation("Idle",true);
+                    if (!player.playAnimation("Idle",true))
+                        player.playAnimation("BindPose",true);
                     player.spawn(Vector3Add(toRay(state.position),Vector3{-3.0f,0.0f,0.0f}));
                     // Driver door offset in vehicle-local coordinates; configurable per car model.
                     const Vector3 doorLocal{-1.05f,0.0f,0.35f};
