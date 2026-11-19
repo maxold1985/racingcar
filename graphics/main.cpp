@@ -40,14 +40,14 @@ static std::string cityAssetDirectory = "assets/city";
 static int cityAdd(lua_State* L) {
     int chunk = static_cast<int>(luaL_checkinteger(L,1));
     int model = static_cast<int>(luaL_checkinteger(L,2));
-    if (model < 1 || model > 8) return luaL_error(L,"invalid city model ID");
-    if (cityInstances.size() >= 20000) return luaL_error(L,"city instance limit reached");
+    if (model < 1 || model > 8) { luaL_error(L,"invalid city model ID"); return 0; }
+    if (cityInstances.size() >= 20000) { luaL_error(L,"city instance limit reached"); return 0; }
     float x=static_cast<float>(luaL_checknumber(L,3));
     float y=static_cast<float>(luaL_checknumber(L,4));
     float z=static_cast<float>(luaL_checknumber(L,5));
     float rotation=static_cast<float>(luaL_optnumber(L,6,0));
     if (!std::isfinite(x)||!std::isfinite(y)||!std::isfinite(z)||!std::isfinite(rotation))
-        return luaL_error(L,"non-finite city transform");
+        { luaL_error(L,"non-finite city transform"); return 0; }
     cityInstances.push_back({chunk,model,{x,y,z},rotation});
     return 0;
 }
