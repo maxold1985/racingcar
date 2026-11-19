@@ -252,12 +252,12 @@ int main(int argc, char** argv) {
                     // Waypoints are world positions relative to the player's initial car spawn.
                     const Vector3 enemyOrigin=toRay(state.position);
                     const std::array<Vector3,6> patrol{{
-                        Vector3{enemyOrigin.x+14,0.4f,enemyOrigin.z+12},
-                        Vector3{enemyOrigin.x+28,0.4f,enemyOrigin.z+12},
-                        Vector3{enemyOrigin.x+35,0.4f,enemyOrigin.z-4},
-                        Vector3{enemyOrigin.x+24,0.4f,enemyOrigin.z-18},
-                        Vector3{enemyOrigin.x+9,0.4f,enemyOrigin.z-14},
-                        Vector3{enemyOrigin.x+5,0.4f,enemyOrigin.z+2}
+                        Vector3{enemyOrigin.x+70,0.4f,enemyOrigin.z+75},
+                        Vector3{enemyOrigin.x+95,0.4f,enemyOrigin.z+75},
+                        Vector3{enemyOrigin.x+105,0.4f,enemyOrigin.z+45},
+                        Vector3{enemyOrigin.x+90,0.4f,enemyOrigin.z+20},
+                        Vector3{enemyOrigin.x+65,0.4f,enemyOrigin.z+25},
+                        Vector3{enemyOrigin.x+55,0.4f,enemyOrigin.z+55}
                     }};
                     Vector3 enemyPosition=patrol[0];
                     float enemyYaw=0.0f;
