@@ -164,13 +164,19 @@ static int l_velocity(lua_State* L) {
     rv_vehicle_set_velocity(v,linear,angular); return 0;
 }
 static int l_controls(lua_State* L) {
-    RVVehicle* v=check_vehicle(L,ctx(L),1);
+    RVLuauContext* context=ctx(L);
+    RVVehicle* v=check_vehicle(L,context,1);
     float throttle=static_cast<float>(luaL_checknumber(L,2));
     float brake=static_cast<float>(luaL_checknumber(L,3));
     float steer=static_cast<float>(luaL_checknumber(L,4));
     if (!std::isfinite(throttle) || !std::isfinite(brake) || !std::isfinite(steer))
         { luaL_error(L,"controls must be finite"); return 0; }
-    rv_vehicle_set_controls(v,throttle,brake,steer); return 0;
+    rv_vehicle_set_controls(v,throttle,brake,steer);
+    context->applied_throttle=throttle;
+    context->applied_brake=brake;
+    context->applied_steer=steer;
+    ++context->control_calls;
+    return 0;
 }
 static int l_step(lua_State* L) {
     RVLuauContext* c=ctx(L);
@@ -179,6 +185,7 @@ static int l_step(lua_State* L) {
     if (!c->raycast) { luaL_error(L,"host raycast not registered"); return 0; }
     if (rv_vehicle_step(v,dt,c->raycast,c->raycast_user)!=0)
         { luaL_error(L,"invalid physics dt, vehicle or missing wheels (use dt <= 1/30)"); return 0; }
+    ++c->physics_steps;
     return 0;
 }
 static int l_state(lua_State* L) {
