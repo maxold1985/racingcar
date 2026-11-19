@@ -1,4 +1,5 @@
 #include "rv_model.hpp"
+#include "rv_player.hpp"
 #include "webp_texture.hpp"
 #include "rv_luau.h"
 #include "rv_physics.h"
@@ -102,6 +103,7 @@ int main(int argc, char** argv) {
     const char* chassisPath=argc>1 ? argv[1] : nullptr;
     const char* scriptPath=argc>2 ? argv[2] : RV_DEFAULT_GAME_SCRIPT;
     const char* pavementPath=argc>3 ? argv[3] : "..\\..\\assets\\pavimento.webp";
+    const char* characterPath=argc>4 ? argv[4] : nullptr;
 
     InitWindow(1280,720,"racingcar - Luau raycast racing");
     if (!IsWindowReady()) return 1;
@@ -179,6 +181,12 @@ int main(int argc, char** argv) {
                     constexpr float fixedDt=1.0f/120.0f;
                     float accumulator=0.0f;
                     RVBodyState state=rv_vehicle_get_state(car);
+                    RVPlayer player;
+                    player.load(characterPath);
+                    player.spawn(Vector3Add(toRay(state.position),Vector3{-3.0f,0.0f,0.0f}));
+                    // Driver door offset in vehicle-local coordinates; configurable per car model.
+                    const Vector3 doorLocal{-1.05f,0.0f,0.35f};
+                    constexpr float enterRadius=1.7f;
                     Camera3D camera{};
                     camera.position=Vector3{0,5,-10};
                     camera.target=toRay(state.position);
@@ -195,18 +203,36 @@ int main(int argc, char** argv) {
                     while (!WindowShouldClose()) {
                         float frame=std::min(GetFrameTime(),0.1f);
                         accumulator+=frame;
-                        if (IsKeyPressed(KEY_R)) {
+                        if (player.insideCar && IsKeyPressed(KEY_R)) {
                             // Manual recovery from rollovers or unstable states.
                             rv_vehicle_set_pose(car,RVVec3{0,1.0f,0},RVQuat{0,0,0,1});
                             rv_vehicle_set_velocity(car,RVVec3{0,0,0},RVVec3{0,0,0});
                             accumulator=0.0f;
                         }
-                        const float throttle=(IsKeyDown(KEY_W)||IsKeyDown(KEY_UP)) ? 1.0f :
-                                             (IsKeyDown(KEY_S)||IsKeyDown(KEY_DOWN)) ? -0.45f : 0.0f;
-                        const float brake=IsKeyDown(KEY_SPACE) ? 1.0f : 0.0f;
-                        // Inverted steering as requested: A/Left -> +1, D/Right -> -1.
-                        const float steer=(IsKeyDown(KEY_A)||IsKeyDown(KEY_LEFT) ? 1.0f : 0.0f)
-                                         -(IsKeyDown(KEY_D)||IsKeyDown(KEY_RIGHT) ? 1.0f : 0.0f);
+                        const RVBodyState interactionState=rv_vehicle_get_state(car);
+                        const Quaternion carRotation=toRay(interactionState.orientation);
+                        Vector3 door=Vector3Add(toRay(interactionState.position),
+                            Vector3RotateByQuaternion(doorLocal,carRotation));
+                        door.y=0.0f;
+                        const bool nearDoor=!player.insideCar &&
+                            Vector3Distance(player.position(),door)<=enterRadius;
+                        // Space is context-sensitive: enter at the ghost marker, brake while driving.
+                        if (nearDoor && IsKeyPressed(KEY_SPACE)) {
+                            player.insideCar=true;
+                            accumulator=0.0f;
+                        } else if (player.insideCar && IsKeyPressed(KEY_F)) {
+                            player.insideCar=false;
+                            player.spawn(Vector3Add(door,Vector3{-0.65f,0,0}));
+                            accumulator=0.0f;
+                        }
+                        if (!player.insideCar) player.update(frame,camera);
+                        const float throttle=player.insideCar ?
+                            ((IsKeyDown(KEY_W)||IsKeyDown(KEY_UP)) ? 1.0f :
+                             (IsKeyDown(KEY_S)||IsKeyDown(KEY_DOWN)) ? -0.45f : 0.0f) : 0.0f;
+                        const float brake=player.insideCar ? (IsKeyDown(KEY_SPACE)?1.0f:0.0f) : 1.0f;
+                        const float steer=player.insideCar ?
+                            ((IsKeyDown(KEY_A)||IsKeyDown(KEY_LEFT) ? 1.0f : 0.0f)
+                            -(IsKeyDown(KEY_D)||IsKeyDown(KEY_RIGHT) ? 1.0f : 0.0f)) : 0.0f;
                         int steps=0;
                         bool running=true;
                         while (accumulator>=fixedDt && steps<12) {
@@ -249,7 +275,9 @@ int main(int argc, char** argv) {
                             1.0f-2.0f*(orientation.y*orientation.y+orientation.z*orientation.z));
                         const float angle=heading+orbitYaw;
                         const float horizontal=orbitDistance*std::cos(orbitPitch);
-                        const Vector3 focusWanted=Vector3Add(pos,Vector3{0,0.6f,0});
+                        const Vector3 focusWanted=player.insideCar ?
+                            Vector3Add(pos,Vector3{0,0.6f,0}) :
+                            Vector3Add(player.position(),Vector3{0,1.0f,0});
                         const float follow=1.0f-std::exp(-8.0f*frame);
                         cameraFocus=Vector3Lerp(cameraFocus,focusWanted,follow);
                         camera.target=cameraFocus;
@@ -280,12 +308,22 @@ int main(int argc, char** argv) {
                         // WHITE preserves the imported glTF/GLB base-color textures and materials.
                         // A red tint multiplies every material color and makes the car red.
                         chassis.draw(pos,orientation,1.0f,WHITE);
+                        player.draw();
+                        if (!player.insideCar) {
+                            const Vector3 marker=Vector3Add(door,Vector3{0,0.12f,0});
+                            DrawCylinder(marker,0.62f,0.62f,0.06f,24,Fade(SKYBLUE,0.45f));
+                            DrawCylinderWires(marker,0.62f,0.62f,0.06f,24,BLUE);
+                            DrawSphere(Vector3Add(door,Vector3{0,1.5f,0}),0.14f,
+                                       nearDoor?GREEN:SKYBLUE);
+                        }
                         // Tire meshes intentionally hidden. Physics raycasts,
                         // steering, anti-roll and tire forces still run normally.
                         EndMode3D();
                         DrawRectangle(10,10,670,226,Fade(BLACK,0.70f));
                         DrawText(TextFormat("Speed: %.1f km/h",state.speed_kmh),20,20,24,RAYWHITE);
-                        DrawText("W/S accelerate/reverse  A/D steer  SPACE brake",20,54,16,RAYWHITE);
+                        DrawText(player.insideCar ?
+                            "DRIVING: W/S accelerate | A/D steer | SPACE brake | F exit" :
+                            "ON FOOT: WASD move | SPACE enter at blue door ghost",20,54,16,RAYWHITE);
                         DrawText("R reset | RMB orbit | Wheel zoom | HOME camera | ESC quit",20,75,16,RAYWHITE);
                         DrawText(TextFormat("INPUT: throttle %.2f | brake %.2f | steer %.2f",
                                             throttle,brake,steer),20,100,18,YELLOW);
@@ -299,9 +337,11 @@ int main(int argc, char** argv) {
                                             ctx.physics_steps,IsWindowFocused()?"YES":"NO"),
                                  20,173,18,ctx.physics_steps>0?GREEN:RED);
                         DrawText(pavementLoaded ? "PAVEMENT: WEBP OK" : "PAVEMENT: NOT LOADED",20,198,18,pavementLoaded?GREEN:RED);
+                        if (nearDoor) DrawText("SPACE: ENTER CAR",GetScreenWidth()/2-110,GetScreenHeight()-85,24,GREEN);
                         DrawFPS(GetScreenWidth()-100,20);
                         EndDrawing();
                     }
+                    player.unload();
                 }
             }
             lua_close(mainState);
