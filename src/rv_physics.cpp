@@ -165,17 +165,25 @@ int rv_vehicle_step(RVVehicle* v, float dt, RVRaycastFn raycast, void* user) {
         s->contact_point=v3(0,0,0);
         s->contact_normal=v3(0,1,0);
         s->wheel_center=mount + down * d->rest_length;
+        // Start the ray above the suspension anchor so a wheel can recover
+        // after shallow ground penetration. The effective distance remains
+        // relative to the original mount, not the elevated ray origin.
+        const float recovery = d->max_length + d->radius;
+        const RVVec3 ray_origin = mount + up * recovery;
+        const float ray_length = 2.0f * recovery;
         RVHit hit; memset(&hit,0,sizeof(hit));
-        if (!raycast(user,mount,down,d->max_length+d->radius,&hit) ||
-            !isfinite(hit.distance) || hit.distance<0 || hit.distance>d->max_length+d->radius ||
+        if (!raycast(user,ray_origin,down,ray_length,&hit) ||
+            !isfinite(hit.distance) || hit.distance<0 || hit.distance>ray_length ||
             length3(hit.normal)<RV_EPS) continue;
+        const float effective_distance = hit.distance - recovery;
+        if (effective_distance > d->max_length+d->radius) continue;
         RVVec3 n=norm(hit.normal);
         if (dot(n,up)<0.05f) continue;
         s->grounded=1;
         w->ground_velocity=hit.ground_velocity;
         s->contact_point=hit.point;
         s->contact_normal=n;
-        s->suspension_length=clampf(hit.distance-d->radius,d->min_length,d->max_length);
+        s->suspension_length=clampf(effective_distance-d->radius,d->min_length,d->max_length);
         s->compression=fmaxf(0,d->rest_length-s->suspension_length);
         s->wheel_center=mount + down * s->suspension_length;
         RVVec3 pointvel=point_speed(body,mount) - hit.ground_velocity;
