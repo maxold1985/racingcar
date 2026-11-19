@@ -105,6 +105,7 @@ if(RV_WITH_GRAPHICS)
         "${CMAKE_CURRENT_SOURCE_DIR}/include"
         "${CMAKE_CURRENT_SOURCE_DIR}/src"
         "${CMAKE_CURRENT_SOURCE_DIR}/graphics"
+        "${libwebp_SOURCE_DIR}/src" # contains webp/decode.h
         "${luau_SOURCE_DIR}/VM/include"
         "${luau_SOURCE_DIR}/Compiler/include")
     target_link_libraries(racingcar_game PRIVATE raycast_vehicle_static raylib webpdecoder Luau.VM Luau.Compiler)
