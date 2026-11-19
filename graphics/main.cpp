@@ -264,6 +264,33 @@ int main(int argc, char** argv) {
                     float enemySpeed=0.0f;
                     int enemyWaypoint=1;
                     bool enemyChasing=false;
+                    bool localCirclePatrol=false;
+                    constexpr int circlePoints=16;
+                    constexpr float circleRadius=14.0f;
+                    std::array<Vector3,circlePoints> circularPatrol{};
+                    int circleWaypoint=1;
+                    auto buildCirclePatrol=[&]() {
+                        // The first point is exactly where the pursuit ended.
+                        // Offset the center to the enemy's right, keeping the
+                        // circle tangent to its current direction of travel.
+                        const float centerX=enemyPosition.x+
+                            std::cos(enemyYaw)*circleRadius;
+                        const float centerZ=enemyPosition.z-
+                            std::sin(enemyYaw)*circleRadius;
+                        const float startAngle=std::atan2(
+                            enemyPosition.z-centerZ,enemyPosition.x-centerX);
+                        constexpr float tau=6.2831853071795864769f;
+                        for(int i=0;i<circlePoints;++i) {
+                            const float a=startAngle+tau*static_cast<float>(i)/circlePoints;
+                            circularPatrol[i]=Vector3{
+                                centerX+std::cos(a)*circleRadius,
+                                enemyPosition.y,
+                                centerZ+std::sin(a)*circleRadius
+                            };
+                        }
+                        circleWaypoint=1;
+                        localCirclePatrol=true;
+                    };
                     constexpr float enemyDetectRadius=22.0f;
                     constexpr float enemyLoseRadius=32.0f;
                     constexpr float enemyPatrolSpeed=7.0f;
@@ -556,17 +583,27 @@ int main(int argc, char** argv) {
                             const float distance=std::hypot(
                                 targetCar.x-enemyPosition.x,targetCar.z-enemyPosition.z);
                             if(enemyChasing) {
-                                if(distance>enemyLoseRadius) enemyChasing=false;
+                                if(distance>enemyLoseRadius) {
+                                    enemyChasing=false;
+                                    buildCirclePatrol();
+                                }
                             } else if(distance<enemyDetectRadius) {
                                 enemyChasing=true;
                             }
-                            Vector3 target=enemyChasing?targetCar:patrol[enemyWaypoint];
+                            Vector3 target=enemyChasing?targetCar:
+                                (localCirclePatrol?circularPatrol[circleWaypoint]:
+                                                   patrol[enemyWaypoint]);
                             float dx=target.x-enemyPosition.x;
                             float dz=target.z-enemyPosition.z;
                             float targetDistance=std::hypot(dx,dz);
                             if(!enemyChasing && targetDistance<2.0f) {
-                                enemyWaypoint=(enemyWaypoint+1)%static_cast<int>(patrol.size());
-                                target=patrol[enemyWaypoint];
+                                if(localCirclePatrol) {
+                                    circleWaypoint=(circleWaypoint+1)%circlePoints;
+                                    target=circularPatrol[circleWaypoint];
+                                } else {
+                                    enemyWaypoint=(enemyWaypoint+1)%static_cast<int>(patrol.size());
+                                    target=patrol[enemyWaypoint];
+                                }
                                 dx=target.x-enemyPosition.x;
                                 dz=target.z-enemyPosition.z;
                                 targetDistance=std::hypot(dx,dz);
@@ -880,12 +917,22 @@ int main(int argc, char** argv) {
                             pos,Vector3{0.0f,-carVisualDrop,0.0f});
                         chassis.draw(carVisualPosition,orientation,1.0f,WHITE);
                         // Visible navigation route and enemy vehicle.
-                        for(int i=0;i<static_cast<int>(patrol.size());++i) {
-                            const Vector3 a=patrol[i];
-                            const Vector3 b=patrol[(i+1)%patrol.size()];
-                            DrawLine3D(Vector3{a.x,0.07f,a.z},
-                                       Vector3{b.x,0.07f,b.z},SKYBLUE);
-                            DrawSphere(Vector3{a.x,0.11f,a.z},0.22f,BLUE);
+                        if(localCirclePatrol) {
+                            for(int i=0;i<circlePoints;++i) {
+                                const Vector3 a=circularPatrol[i];
+                                const Vector3 b=circularPatrol[(i+1)%circlePoints];
+                                DrawLine3D(Vector3{a.x,0.07f,a.z},
+                                           Vector3{b.x,0.07f,b.z},SKYBLUE);
+                                DrawSphere(Vector3{a.x,0.11f,a.z},0.18f,BLUE);
+                            }
+                        } else {
+                            for(int i=0;i<static_cast<int>(patrol.size());++i) {
+                                const Vector3 a=patrol[i];
+                                const Vector3 b=patrol[(i+1)%patrol.size()];
+                                DrawLine3D(Vector3{a.x,0.07f,a.z},
+                                           Vector3{b.x,0.07f,b.z},SKYBLUE);
+                                DrawSphere(Vector3{a.x,0.11f,a.z},0.22f,BLUE);
+                            }
                         }
                         const Quaternion enemyRotation=QuaternionFromAxisAngle(
                             Vector3{0,1,0},enemyYaw);
@@ -1019,10 +1066,11 @@ int main(int argc, char** argv) {
                         } else {
                             DrawText("TAB: INVENTORY",10,GetScreenHeight()-24,16,RAYWHITE);
                         }
-                        DrawText(TextFormat("ENEMY: %s | %.1f m | waypoint %d/6",
-                            enemyChasing?"CHASE":"PATROL",
+                        DrawText(TextFormat("ENEMY: %s | %.1f m | waypoint %d",
+                            enemyChasing?"CHASE":(localCirclePatrol?"CIRCLE PATROL":"PATROL"),
                             std::hypot(pos.x-enemyPosition.x,pos.z-enemyPosition.z),
-                            enemyWaypoint+1),20,224,18,enemyChasing?RED:SKYBLUE);
+                            localCirclePatrol?circleWaypoint+1:enemyWaypoint+1),
+                            20,224,18,enemyChasing?RED:SKYBLUE);
                         DrawRectangle(10,260,555,108,Fade(BLACK,0.78f));
                          DrawText(TextFormat("CARGO RUN - CONTRACT %03d | WALLET: $%d",
                                              static_cast<int>(deliveryIndex+1),wallet),
