@@ -1,5 +1,6 @@
 #pragma once
 #include "rv_model.hpp"
+#include "rv_animation.hpp"
 #include "raylib.h"
 #include "raymath.h"
 
@@ -7,6 +8,8 @@
 class RVPlayer {
 public:
     bool load(const char* modelPath);
+    bool loadAnimation(const std::string& name, const char* path);
+    bool playAnimation(const std::string& name, bool loop);
     void spawn(Vector3 position);
     void update(float dt, const Camera3D& camera);
     void draw() const;
@@ -15,6 +18,8 @@ public:
     bool insideCar = false;
 private:
     RVModel model_;
+    RVAnimation animation_;
+    bool walking_ = false;
     Vector3 position_{0.0f,0.0f,0.0f};
     float facing_ = 0.0f;
     float walkPhase_ = 0.0f;
