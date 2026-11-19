@@ -11,6 +11,7 @@
 #include <lualib.h>
 #include <luacode.h>
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -251,6 +252,7 @@ int main(int argc, char** argv) {
                         Vector3 position;
                         Vector3 velocity{0,0,0};
                         float size=0.85f;
+                        bool stored=false;
                     };
                     std::vector<GrabBox> grabBoxes;
                     // Spawn demo boxes on the ground near the car.
@@ -260,6 +262,10 @@ int main(int argc, char** argv) {
                             Vector3{toRay(state.position).x+5.0f+column*1.8f,0.425f,toRay(state.position).z-2.0f+row*2.0f}
                         });
                     }
+                    // Eight one-crate slots. Stored crates retain their world identity.
+                    std::array<int,8> inventory{};
+                    inventory.fill(-1);
+                    int selectedSlot=0;
                     int grabbedBox=-1;
                     float grabDistance=5.0f;
                     Vector3 grabEnd{0,0,0};
@@ -367,6 +373,7 @@ int main(int argc, char** argv) {
                             float nearest=25.0f;
                             for(int i=0;i<static_cast<int>(grabBoxes.size());++i) {
                                 const GrabBox& box=grabBoxes[i];
+                                if(box.stored) continue;
                                 const float h=box.size*0.5f;
                                 const BoundingBox bounds{
                                     Vector3{box.position.x-h,box.position.y-h,box.position.z-h},
@@ -379,6 +386,41 @@ int main(int argc, char** argv) {
                                 }
                             }
                             if(grabbedBox>=0) grabDistance=nearest;
+                        }
+                        // 1..8 select slots; Q stores the held crate; G drops it.
+                        for(int slot=0;slot<8;++slot) {
+                            if(IsKeyPressed(static_cast<KeyboardKey>(KEY_ONE+slot)))
+                                selectedSlot=slot;
+                        }
+                        if(!player.insideCar && IsKeyPressed(KEY_Q) && grabbedBox>=0) {
+                            int freeSlot=-1;
+                            if(inventory[selectedSlot]<0) freeSlot=selectedSlot;
+                            else {
+                                for(int slot=0;slot<8;++slot)
+                                    if(inventory[slot]<0) {freeSlot=slot;break;}
+                            }
+                            if(freeSlot>=0) {
+                                inventory[freeSlot]=grabbedBox;
+                                grabBoxes[grabbedBox].stored=true;
+                                grabBoxes[grabbedBox].velocity=Vector3{0,0,0};
+                                selectedSlot=freeSlot;
+                                grabbedBox=-1;
+                            }
+                        }
+                        if(!player.insideCar && IsKeyPressed(KEY_G) &&
+                           inventory[selectedSlot]>=0) {
+                            const int index=inventory[selectedSlot];
+                            inventory[selectedSlot]=-1;
+                            GrabBox& box=grabBoxes[index];
+                            box.stored=false;
+                            const Vector3 forward=Vector3Normalize(Vector3{
+                                camera.target.x-camera.position.x,0,
+                                camera.target.z-camera.position.z
+                            });
+                            box.position=Vector3Add(player.position(),
+                                Vector3Add(Vector3Scale(forward,2.0f),
+                                           Vector3{0,box.size*0.5f+0.3f,0}));
+                            box.velocity=Vector3{0,0,0};
                         }
                         if(IsMouseButtonReleased(MOUSE_BUTTON_RIGHT) || player.insideCar)
                             grabbedBox=-1;
@@ -400,7 +442,7 @@ int main(int argc, char** argv) {
                                                      Vector3Scale(held.velocity,frame));
                         }
                         for(int i=0;i<static_cast<int>(grabBoxes.size());++i) {
-                            if(i==grabbedBox) continue;
+                            if(i==grabbedBox || grabBoxes[i].stored) continue;
                             GrabBox& box=grabBoxes[i];
                             box.velocity.y-=18.0f*frame;
                             box.position=Vector3Add(box.position,
@@ -420,6 +462,7 @@ int main(int argc, char** argv) {
                         for(int iteration=0;iteration<4;++iteration) {
                             for(int i=0;i<static_cast<int>(grabBoxes.size());++i) {
                                 GrabBox& a=grabBoxes[i];
+                                if(a.stored) continue;
                                 const float ha=a.size*0.5f;
                                 if(a.position.y<ha) {
                                     a.position.y=ha;
@@ -427,6 +470,7 @@ int main(int argc, char** argv) {
                                 }
                                 for(int j=i+1;j<static_cast<int>(grabBoxes.size());++j) {
                                     GrabBox& b=grabBoxes[j];
+                                    if(b.stored) continue;
                                     const float hb=b.size*0.5f;
                                     const float px=ha+hb-std::abs(a.position.x-b.position.x);
                                     const float py=ha+hb-std::abs(a.position.y-b.position.y);
@@ -539,6 +583,7 @@ int main(int argc, char** argv) {
                         // Green fake contact shadow: footprint stays on the ground
                         // even when a crate is lifted by the red ray.
                         for(const GrabBox& box:grabBoxes) {
+                            if(box.stored) continue;
                             const float footprint=box.size*0.94f;
                             const float elevation=std::max(0.0f,box.position.y-box.size*0.5f);
                             const float alpha=std::clamp(0.55f/(1.0f+elevation*0.35f),0.12f,0.55f);
@@ -550,6 +595,7 @@ int main(int argc, char** argv) {
                         }
                         for(int i=0;i<static_cast<int>(grabBoxes.size());++i) {
                             const GrabBox& box=grabBoxes[i];
+                            if(box.stored) continue;
                             const Color color=i==grabbedBox?ORANGE:Color{180,135,85,255};
                             DrawCube(box.position,box.size,box.size,box.size,color);
                             DrawCubeWires(box.position,box.size,box.size,box.size,DARKBROWN);
@@ -572,7 +618,7 @@ int main(int argc, char** argv) {
                         DrawText(TextFormat("Speed: %.1f km/h",state.speed_kmh),20,20,24,RAYWHITE);
                         DrawText(player.insideCar ?
                             "DRIVING: W/S accelerate | A/D steer | SPACE brake | F exit" :
-                            "ON FOOT: WASD move | SPACE jump | E enter | RMB grab boxes",20,54,16,RAYWHITE);
+                            "ON FOOT: WASD move | SPACE jump | RMB grab | Q store | G drop",20,54,16,RAYWHITE);
                         DrawText("R reset | MMB orbit | RMB red ray/grab | Wheel zoom | HOME camera | ESC quit",20,75,16,RAYWHITE);
                         DrawText(TextFormat("INPUT: throttle %.2f | brake %.2f | steer %.2f",
                                             throttle,brake,steer),20,100,18,YELLOW);
@@ -587,6 +633,28 @@ int main(int argc, char** argv) {
                                  20,173,18,ctx.physics_steps>0?GREEN:RED);
                         DrawText(pavementLoaded ? "PAVEMENT: WEBP OK" : "PAVEMENT: NOT LOADED",20,198,18,pavementLoaded?GREEN:RED);
                         if (nearDoor) DrawText("E: ENTER CAR",GetScreenWidth()/2-110,GetScreenHeight()-85,24,GREEN);
+                        // Eight-slot inventory hotbar (one crate per slot).
+                        constexpr int slotSize=56,slotGap=7;
+                        const int barWidth=8*slotSize+7*slotGap;
+                        const int barX=(GetScreenWidth()-barWidth)/2;
+                        const int barY=GetScreenHeight()-75;
+                        int inventoryCount=0;
+                        for(int slot=0;slot<8;++slot) {
+                            const int x=barX+slot*(slotSize+slotGap);
+                            const bool occupied=inventory[slot]>=0;
+                            if(occupied) ++inventoryCount;
+                            DrawRectangle(x,barY,slotSize,slotSize,Fade(BLACK,0.78f));
+                            DrawRectangleLinesEx(Rectangle{float(x),float(barY),
+                                float(slotSize),float(slotSize)},slot==selectedSlot?3.0f:1.0f,
+                                slot==selectedSlot?YELLOW:GRAY);
+                            DrawText(TextFormat("%d",slot+1),x+5,barY+4,14,LIGHTGRAY);
+                            if(occupied) {
+                                DrawRectangle(x+17,barY+19,23,23,BROWN);
+                                DrawRectangleLines(x+17,barY+19,23,23,BEIGE);
+                            }
+                        }
+                        DrawText(TextFormat("INVENTORY %d/8 | 1-8 select | Q store held box | G drop",inventoryCount),
+                                 barX,barY-23,15,RAYWHITE);
                         DrawFPS(GetScreenWidth()-100,20);
                         EndDrawing();
                     }
