@@ -248,6 +248,31 @@ int main(int argc, char** argv) {
                     float orbitDistance=9.0f;
                     Vector3 cameraFocus=Vector3Add(toRay(state.position),Vector3{0,0.6f,0});
 
+                    // Enemy patrol route and proximity chase (kinematic AI).
+                    // Waypoints are world positions relative to the player's initial car spawn.
+                    const Vector3 enemyOrigin=toRay(state.position);
+                    const std::array<Vector3,6> patrol{{
+                        Vector3{enemyOrigin.x+14,0.4f,enemyOrigin.z+12},
+                        Vector3{enemyOrigin.x+28,0.4f,enemyOrigin.z+12},
+                        Vector3{enemyOrigin.x+35,0.4f,enemyOrigin.z-4},
+                        Vector3{enemyOrigin.x+24,0.4f,enemyOrigin.z-18},
+                        Vector3{enemyOrigin.x+9,0.4f,enemyOrigin.z-14},
+                        Vector3{enemyOrigin.x+5,0.4f,enemyOrigin.z+2}
+                    }};
+                    Vector3 enemyPosition=patrol[0];
+                    float enemyYaw=0.0f;
+                    float enemySpeed=0.0f;
+                    int enemyWaypoint=1;
+                    bool enemyChasing=false;
+                    constexpr float enemyDetectRadius=22.0f;
+                    constexpr float enemyLoseRadius=32.0f;
+                    constexpr float enemyPatrolSpeed=7.0f;
+                    constexpr float enemyChaseSpeed=13.0f;
+                    constexpr float enemyTurnRate=2.2f;
+                    auto normalizeAngle=[](float a) {
+                        return std::atan2(std::sin(a),std::cos(a));
+                    };
+
                     struct GrabBox {
                         Vector3 position;
                         Vector3 velocity{0,0,0};
@@ -387,6 +412,48 @@ int main(int argc, char** argv) {
                             std::sin(orbitPitch)*orbitDistance,
                             -std::cos(angle)*horizontal
                         });
+
+                        // AI state machine: PATROL -> CHASE -> PATROL with hysteresis.
+                        // Kinematic steering follows the waypoint sequence.
+                        {
+                            const Vector3 targetCar=toRay(state.position);
+                            const float distance=std::hypot(
+                                targetCar.x-enemyPosition.x,targetCar.z-enemyPosition.z);
+                            if(enemyChasing) {
+                                if(distance>enemyLoseRadius) enemyChasing=false;
+                            } else if(distance<enemyDetectRadius) {
+                                enemyChasing=true;
+                            }
+                            Vector3 target=enemyChasing?targetCar:patrol[enemyWaypoint];
+                            float dx=target.x-enemyPosition.x;
+                            float dz=target.z-enemyPosition.z;
+                            float targetDistance=std::hypot(dx,dz);
+                            if(!enemyChasing && targetDistance<2.0f) {
+                                enemyWaypoint=(enemyWaypoint+1)%static_cast<int>(patrol.size());
+                                target=patrol[enemyWaypoint];
+                                dx=target.x-enemyPosition.x;
+                                dz=target.z-enemyPosition.z;
+                                targetDistance=std::hypot(dx,dz);
+                            }
+                            if(targetDistance>0.05f) {
+                                // Local model forward is +Z, matching raylib yaw.
+                                const float desiredYaw=std::atan2(dx,dz);
+                                const float delta=normalizeAngle(desiredYaw-enemyYaw);
+                                enemyYaw+=std::clamp(delta,-enemyTurnRate*frame,
+                                                         enemyTurnRate*frame);
+                            }
+                            const float targetSpeed=enemyChasing?enemyChaseSpeed:enemyPatrolSpeed;
+                            const float turnPenalty=std::clamp(
+                                1.0f-std::abs(normalizeAngle(
+                                    std::atan2(dx,dz)-enemyYaw))/2.5f,0.25f,1.0f);
+                            const float desiredSpeed=targetDistance<1.5f && enemyChasing
+                                ?0.0f:targetSpeed*turnPenalty;
+                            const float speedDelta=std::clamp(
+                                desiredSpeed-enemySpeed,-12.0f*frame,8.0f*frame);
+                            enemySpeed+=speedDelta;
+                            enemyPosition.x+=std::sin(enemyYaw)*enemySpeed*frame;
+                            enemyPosition.z+=std::cos(enemyYaw)*enemySpeed*frame;
+                        }
 
                         // Right mouse button: cast a red ray and grab the nearest box.
                         // The ray is cast from the camera through the mouse cursor.
@@ -638,6 +705,23 @@ int main(int argc, char** argv) {
                         const Vector3 carVisualPosition=Vector3Add(
                             pos,Vector3{0.0f,-carVisualDrop,0.0f});
                         chassis.draw(carVisualPosition,orientation,1.0f,WHITE);
+                        // Visible navigation route and enemy vehicle.
+                        for(int i=0;i<static_cast<int>(patrol.size());++i) {
+                            const Vector3 a=patrol[i];
+                            const Vector3 b=patrol[(i+1)%patrol.size()];
+                            DrawLine3D(Vector3{a.x,0.07f,a.z},
+                                       Vector3{b.x,0.07f,b.z},SKYBLUE);
+                            DrawSphere(Vector3{a.x,0.11f,a.z},0.22f,BLUE);
+                        }
+                        const Quaternion enemyRotation=QuaternionFromAxisAngle(
+                            Vector3{0,1,0},enemyYaw);
+                        chassis.draw(Vector3{enemyPosition.x,enemyPosition.y-0.30f,
+                                              enemyPosition.z},
+                                     enemyRotation,1.0f,enemyChasing?RED:ORANGE);
+                        DrawSphere(Vector3{enemyPosition.x,enemyPosition.y+2.0f,
+                                            enemyPosition.z},0.24f,
+                                   enemyChasing?RED:YELLOW);
+
                         player.draw();
                         // Green fake contact shadow: footprint stays on the ground
                         // even when a crate is lifted by the red ray.
@@ -755,6 +839,10 @@ int main(int argc, char** argv) {
                         } else {
                             DrawText("TAB: INVENTORY",10,GetScreenHeight()-24,16,RAYWHITE);
                         }
+                        DrawText(TextFormat("ENEMY: %s | %.1f m | waypoint %d/6",
+                            enemyChasing?"CHASE":"PATROL",
+                            std::hypot(pos.x-enemyPosition.x,pos.z-enemyPosition.z),
+                            enemyWaypoint+1),20,224,18,enemyChasing?RED:SKYBLUE);
                         DrawFPS(GetScreenWidth()-100,20);
                         EndDrawing();
                     }
