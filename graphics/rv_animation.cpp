@@ -326,7 +326,24 @@ bool RVAnimation::loadClip(const std::string& name,const char* path) {
     return true;
 }
 bool RVAnimation::play(const std::string& name,bool loop) {
-    if(!modelValid_ || clips_.find(name)==clips_.end()) return false;
+    if(!modelValid_) return false;
+    if(name=="BindPose") {
+        if(active_=="BindPose") return true;
+        for(Part& part:parts_) {
+            Mesh& mesh=part.model.meshes[0];
+            for(size_t i=0;i<part.bindVertices.size();++i) {
+                const aiVector3D& v=part.bindVertices[i];
+                const aiVector3D& n=part.bindNormals[i];
+                mesh.vertices[3*i]=v.x;mesh.vertices[3*i+1]=v.y;mesh.vertices[3*i+2]=v.z;
+                mesh.normals[3*i]=n.x;mesh.normals[3*i+1]=n.y;mesh.normals[3*i+2]=n.z;
+            }
+            UpdateMeshBuffer(mesh,0,mesh.vertices,int(part.bindVertices.size()*3*sizeof(float)),0);
+            UpdateMeshBuffer(mesh,2,mesh.normals,int(part.bindNormals.size()*3*sizeof(float)),0);
+        }
+        active_="BindPose";loop_=true;time_=0;finished_=false;
+        return true;
+    }
+    if(clips_.find(name)==clips_.end()) return false;
     if(active_==name && loop_==loop && !(finished_&&!loop)) return true;
     active_=name;loop_=loop;time_=0.0;finished_=false;
     return true;
