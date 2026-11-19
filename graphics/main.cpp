@@ -121,6 +121,7 @@ int main(int argc, char** argv) {
         if(argc>5) config.idle=argv[5];
         if(argc>6) config.walking=argv[6];
         if(argc>7) config.enterCar=argv[7];
+        if(argc>8) config.jump=argv[8];
     } else {
         std::fprintf(stderr,"No game.txt found; run from repository root or build/Release.\n");
         return 1;
@@ -131,6 +132,7 @@ int main(int argc, char** argv) {
     const char* characterPath=config.character.empty()?nullptr:config.character.c_str();
     const char* idlePath=config.idle.empty()?nullptr:config.idle.c_str();
     const char* walkingPath=config.walking.empty()?nullptr:config.walking.c_str();
+    const char* jumpPath=config.jump.empty()?nullptr:config.jump.c_str();
     const char* enterPath=config.enterCar.empty()?nullptr:config.enterCar.c_str();
 
     InitWindow(1280,720,"racingcar - Luau raycast racing");
@@ -213,6 +215,7 @@ int main(int argc, char** argv) {
                     player.load(characterPath);
                     if (idlePath) player.loadAnimation("Idle",idlePath);
                     if (walkingPath) player.loadAnimation("Walking",walkingPath);
+                    if (jumpPath) player.loadAnimation("Jump",jumpPath);
                     if (enterPath) player.loadAnimation("EnterCar",enterPath);
                     if (!player.playAnimation("Idle",true))
                         player.playAnimation("BindPose",true);
