@@ -89,21 +89,26 @@ void gatherPose(const aiNode* node, const aiMatrix4x4& parent,
         aiQuaternion rotation;
         local.Decompose(scale,rotation,position);
         const aiNodeAnim* c=channel->second;
-        // aiNodeAnim stores the complete animated local TRS. FBX pivot /
-        // pre-rotation transforms are represented by separate parent nodes.
-        // Frame zero is a running pose, NOT the bind pose: do not
-        // pre-multiply by inverse(animationAtZero).
-        // Mixamo/Assimp FBX splits each joint into Translation,
-        // PreRotation and Rotation helper nodes. The bind translation is
-        // already present in the helper hierarchy. Reapplying the FBX
-        // position channel on the joint itself doubles bone lengths.
-        // Preserve local bind translations for articulated joints, but
-        // allow the root Hips channel to animate vertical body motion.
-        const std::string nodeName=boneKey(node->mName.C_Str());
-        const bool isHips=(nodeName=="Hips");
-        const bool isHelper=(nodeName.find("_$AssimpFbx$_")!=std::string::npos);
-        const aiVector3D p=(isHips || isHelper)
-            ?samplePosition(c,tick,position):position;
+        // Assimp's FBX importer may represent FBX pivots as separate
+        // nodes (e.g. Bone_$AssimpFbx$_Translation). Those nodes already
+        // contain the joint offset. Replacing the real bone's translation
+        // with the FBX channel position would apply the offset twice.
+        // Detect this from the imported hierarchy, not from an assumed
+        // bone name or a blanket restriction on all animated joints.
+        bool parentProvidesTranslation=false;
+        for(const aiNode* ancestor=node->mParent;ancestor;
+            ancestor=ancestor->mParent) {
+            const std::string ancestorName=ancestor->mName.C_Str();
+            if(ancestorName.find("_$AssimpFbx$_Translation")!=std::string::npos) {
+                parentProvidesTranslation=true;
+                break;
+            }
+            // Do not cross into another real joint's hierarchy.
+            if(ancestorName.find("_$AssimpFbx$_")==std::string::npos)
+                break;
+        }
+        const aiVector3D p=parentProvidesTranslation
+            ?position:samplePosition(c,tick,position);
         const aiQuaternion q=sampleRotation(c,tick,rotation);
         const aiVector3D vscale=sampleScale(c,tick,scale);
         aiMatrix4x4 scaling(vscale.x,0,0,0, 0,vscale.y,0,0,
