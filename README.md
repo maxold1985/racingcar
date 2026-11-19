@@ -247,3 +247,12 @@ Referências de suporte: https://luau.org/api/ e https://github.com/luau-lang/lu
 - **R:** reiniciar posição e velocidade do veículo.
 
 A câmera acompanha a posição do carro com suavização exponencial, mas usa orientação vertical global para evitar que capotamentos girem a câmera. A alteração de direção foi feita na leitura de teclado em `graphics/main.cpp`; a API física `Physics.setControls` mantém sua convenção original.
+
+
+### Materiais e texturas GLB/glTF
+
+O leitor `RVModel::load()` usa `LoadModel()` do raylib 5.5, que já importa malhas, materiais e texturas suportados do arquivo GLB/glTF. O jogo agora renderiza o chassi com `WHITE`, preservando as cores e texturas importadas; antes aplicava um tint vermelho a todos os materiais. O leitor mantém `model.materials` e `model.meshMaterial` sem substituí-los e registra no console os materiais e IDs das texturas de albedo, normal, metallic, roughness e emissão.
+
+Para GLB, as texturas normalmente ficam incorporadas no arquivo; para glTF com arquivos externos, mantenha os recursos relativos próximos ao arquivo principal. O renderer padrão do raylib **não é um pipeline PBR completo**: mapas normal/metallic/roughness podem ser importados mas exigem shaders próprios para que seus efeitos sejam efetivamente renderizados. A implementação atual preserva o material e a textura base (albedo), sem prometer iluminação PBR, transparência avançada ou suporte a todas as extensões glTF.
+
+Atualize e recompile: `git pull origin mainn` e `cmake --build build --config Release --parallel`.
