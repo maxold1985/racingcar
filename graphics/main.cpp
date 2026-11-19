@@ -104,12 +104,13 @@ int main(int argc, char** argv) {
     if (!IsWindowReady()) return 1;
     SetTargetFPS(120);
 
-    RVModel chassis, wheel;
+    RVModel chassis;
+    // The imported GLB already includes its own wheels. Keep simulated tires
+    // for suspension/traction, but do not draw extra cylinder meshes.
     if (!chassisPath || !chassis.load(chassisPath)) {
         if (chassisPath) std::fprintf(stderr,"Using fallback car body\n");
         chassis.makeCube(1.7f,0.55f,3.5f);
     }
-    wheel.makeWheel(0.34f,0.20f);
 
     int status=0;
     {
@@ -189,16 +190,8 @@ int main(int argc, char** argv) {
                         DrawPlane(Vector3{0,-0.025f,0},Vector2{1500,1500},Color{65,100,65,255});
                         DrawGrid(80,5);
                         chassis.draw(pos,orientation,1.0f,Color{235,70,55,255});
-                        for (int i=0;i<rv_vehicle_wheel_count(car);++i) {
-                            RVWheelState w=rv_vehicle_get_wheel(car,i);
-                            // Cylinder axis Y -> wheel axle X; steering about chassis up,
-                            // spin about local X after steering.
-                            Quaternion turn=QuaternionFromAxisAngle(Vector3{0,1,0},w.steer_radians);
-                            Quaternion axle=QuaternionFromAxisAngle(Vector3{0,0,1},PI/2);
-                            Quaternion spin=QuaternionFromAxisAngle(Vector3{1,0,0},w.spin_radians);
-                            Quaternion q=QuaternionMultiply(orientation,QuaternionMultiply(turn,QuaternionMultiply(axle,spin)));
-                            wheel.draw(toRay(w.wheel_center),q,1.0f,DARKGRAY);
-                        }
+                        // Tire meshes intentionally hidden. Physics raycasts,
+                        // steering, anti-roll and tire forces still run normally.
                         EndMode3D();
                         DrawRectangle(10,10,670,200,Fade(BLACK,0.70f));
                         DrawText(TextFormat("Speed: %.1f km/h",state.speed_kmh),20,20,24,RAYWHITE);
@@ -223,7 +216,6 @@ int main(int argc, char** argv) {
             lua_close(mainState);
         }
     }
-    wheel.unload();
     chassis.unload();
     CloseWindow();
     return status;
