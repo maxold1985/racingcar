@@ -349,6 +349,7 @@ int main(int argc, char** argv) {
                            savedCondition>=0.0f && savedCondition<=100.0f)
                             vehicleCondition=savedCondition;
                     }
+                    rv_vehicle_set_condition(car,vehicleCondition);
                     rv_vehicle_apply_upgrades(car,engineUpgrade,tireUpgrade,suspensionUpgrade);
                     const std::array<int,3> missionCrates{{1,2,4}};
                     const Vector3 garageZone{state.position.x,0.05f,state.position.z};
@@ -412,6 +413,7 @@ int main(int argc, char** argv) {
                            repairCost>0 && wallet>=repairCost) {
                             wallet-=repairCost;
                             vehicleCondition=100.0f;
+                            rv_vehicle_set_condition(car,vehicleCondition);
                             saveGarage();
                         }
                         if(atGarage && IsKeyPressed(KEY_ONE))
@@ -587,6 +589,7 @@ int main(int argc, char** argv) {
                            enemySpeed>2.0f && vehicleCondition>0.0f) {
                             vehicleCondition=std::max(0.0f,vehicleCondition-
                                 std::clamp(enemySpeed*1.5f,5.0f,20.0f));
+                            rv_vehicle_set_condition(car,vehicleCondition);
                             collisionCooldown=2.0f;
                             std::ofstream save(walletSavePath,std::ios::trunc);
                             if(save) save << wallet << '\n' << deliveryUpgrade << '\n'
@@ -1025,7 +1028,9 @@ int main(int argc, char** argv) {
                          if(mission==Mission::Completed)
                              DrawText(TextFormat("REWARD: $%d",missionReward),20,342,18,GREEN);
                          else DrawText("N contract | Q store | F exit | TAB inventory",20,342,16,LIGHTGRAY);
-                         DrawText(TextFormat("VEHICLE CONDITION: %.0f%%",vehicleCondition),
+                         DrawText(TextFormat("VEHICLE CONDITION: %.0f%% | POWER: %.0f%% | GRIP: %.0f%%",
+                                             vehicleCondition,40.0f+0.6f*vehicleCondition,
+                                             65.0f+0.35f*vehicleCondition),
                                   20,365,18,vehicleCondition>40.0f?GREEN:RED);
                          if(atGarage) {
                              DrawRectangle(10,395,620,170,Fade(BLACK,0.80f));
