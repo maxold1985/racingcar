@@ -18,7 +18,7 @@ bool RVModel::load(const std::string& path) {
         // raylib's GLB/glTF loader imports material parameters and textures.
         // Do not overwrite model.materials or model.meshMaterial: DrawModelEx
         // uses them to render the correct material for each mesh.
-        std::fprintf(stderr, "Imported 3D model: %d meshes, %d materials\\n",
+        std::fprintf(stderr, "Imported 3D model: %d meshes, %d materials\n",
                      model.meshCount, model.materialCount);
         for (int i = 0; i < model.materialCount; ++i) {
             const Material& material = model.materials[i];
@@ -30,7 +30,7 @@ bool RVModel::load(const std::string& path) {
             const Color base = material.maps[albedo].color;
             std::fprintf(stderr,
                          "  Material %d: baseColor RGBA(%u,%u,%u,%u) | "
-                         "albedo texture %u | normal %u | metallic %u | roughness %u | emissive %u\\n",
+                         "albedo texture %u | normal %u | metallic %u | roughness %u | emissive %u\n",
                          i, (unsigned)base.r, (unsigned)base.g,
                          (unsigned)base.b, (unsigned)base.a,
                          material.maps[albedo].texture.id,
