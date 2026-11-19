@@ -93,7 +93,17 @@ void gatherPose(const aiNode* node, const aiMatrix4x4& parent,
         // pre-rotation transforms are represented by separate parent nodes.
         // Frame zero is a running pose, NOT the bind pose: do not
         // pre-multiply by inverse(animationAtZero).
-        const aiVector3D p=samplePosition(c,tick,position);
+        // Mixamo/Assimp FBX splits each joint into Translation,
+        // PreRotation and Rotation helper nodes. The bind translation is
+        // already present in the helper hierarchy. Reapplying the FBX
+        // position channel on the joint itself doubles bone lengths.
+        // Preserve local bind translations for articulated joints, but
+        // allow the root Hips channel to animate vertical body motion.
+        const std::string nodeName=boneKey(node->mName.C_Str());
+        const bool isHips=(nodeName=="Hips");
+        const bool isHelper=(nodeName.find("_$AssimpFbx$_")!=std::string::npos);
+        const aiVector3D p=(isHips || isHelper)
+            ?samplePosition(c,tick,position):position;
         const aiQuaternion q=sampleRotation(c,tick,rotation);
         const aiVector3D vscale=sampleScale(c,tick,scale);
         aiMatrix4x4 scaling(vscale.x,0,0,0, 0,vscale.y,0,0,
