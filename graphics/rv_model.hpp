@@ -20,4 +20,6 @@ public:
 private:
     Model model{};
     bool active = false;
+    float modelScale = 1.0f;
+    Vector3 modelCenter{0,0,0};
 };
