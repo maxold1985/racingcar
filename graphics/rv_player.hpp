@@ -22,6 +22,8 @@ private:
     RVModel model_;
     RVAnimation animation_;
     bool walking_ = false;
+    bool grounded_ = true;
+    float verticalVelocity_ = 0.0f;
     Vector3 position_{0.0f,0.0f,0.0f};
     float facing_ = 0.0f;
     float walkPhase_ = 0.0f;
