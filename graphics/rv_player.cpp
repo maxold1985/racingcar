@@ -38,6 +38,7 @@ void RVPlayer::update(float dt, const Camera3D& camera) {
         animation_.play("Jump",false);
         walking_=false;
     }
+    const bool wasAirborne=!grounded_;
     if(!grounded_) {
         verticalVelocity_-=gravity*dt;
         position_.y+=verticalVelocity_*dt;
@@ -57,6 +58,10 @@ void RVPlayer::update(float dt, const Camera3D& camera) {
     const float lr=(IsKeyDown(KEY_A)||IsKeyDown(KEY_LEFT)?1.0f:0.0f)
                   -(IsKeyDown(KEY_D)||IsKeyDown(KEY_RIGHT)?1.0f:0.0f);
     Vector3 movement=Vector3Add(Vector3Scale(forward,fb),Vector3Scale(right,lr));
+    if(wasAirborne && grounded_) {
+        // Force a ground animation transition on landing.
+        walking_=Vector3LengthSqr(movement)>0.0001f ? false : true;
+    }
     if (Vector3LengthSqr(movement)>0.0001f) {
         movement=Vector3Normalize(movement);
         position_=Vector3Add(position_,Vector3Scale(movement,4.0f*dt));
@@ -71,14 +76,6 @@ void RVPlayer::update(float dt, const Camera3D& camera) {
         if (grounded_ && walking_) {
             if (!animation_.play("Idle",true)) animation_.play("BindPose",true);
             walking_=false;
-        }
-    }
-    if(grounded_ && !walking_) {
-        if(Vector3LengthSqr(movement)>0.0001f) {
-            if(!animation_.play("Walking",true)) animation_.play("Default",true);
-            walking_=true;
-        } else {
-            if(!animation_.play("Idle",true)) animation_.play("BindPose",true);
         }
     }
     animation_.update(dt);
