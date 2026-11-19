@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <filesystem>
 #include <limits>
 #include <unordered_set>
 #include <utility>
@@ -122,6 +123,7 @@ bool RVAnimation::loadCharacter(const char* path) {
         unload();
         return false;
     }
+    characterPath_=path;
     std::unordered_map<unsigned,aiMatrix4x4> meshNodes;
     gatherPose(scene_->mRootNode,aiMatrix4x4(),Channels{},0.0,targetBind_,&meshNodes);
     const float extreme=std::numeric_limits<float>::max();
@@ -185,6 +187,12 @@ bool RVAnimation::loadCharacter(const char* path) {
             bone.targetBind=found->second;
             bone.targetBindInverse=found->second;
             bone.targetBindInverse.Inverse();
+            // Assimp bone offset maps mesh-local bind coordinates to bone-local.
+            // Vertices have already been baked into model space using meshBind.
+            // Therefore remove meshBind once, and never apply it twice.
+            aiMatrix4x4 inverseMesh=meshBind;
+            if(std::abs(inverseMesh.Determinant())>1e-12f) inverseMesh.Inverse();
+            bone.offsetInModelSpace=input->mOffsetMatrix*inverseMesh;
             for(unsigned w=0;w<input->mNumWeights;++w) {
                 const auto& weight=input->mWeights[w];
                 if(weight.mVertexId<src->mNumVertices && weight.mWeight>0)
@@ -207,6 +215,7 @@ bool RVAnimation::loadCharacter(const char* path) {
     if(scene_->HasAnimations()) {
         Clip embedded;
         embedded.source=scene_;
+        embedded.sameSkeleton=true;
         embedded.animation=scene_->mAnimations[0];
         embedded.channels=getChannels(embedded.animation);
         embedded.sourceBind=targetBind_;
@@ -229,6 +238,36 @@ bool RVAnimation::loadCharacter(const char* path) {
 }
 bool RVAnimation::loadClip(const std::string& name,const char* path) {
     if(!modelValid_ || !path || !path[0]) return false;
+    // The same FBX is configured as character AND Walking. Reuse the
+    // already-imported scene and its embedded animation, so the bone hierarchy,
+    // FBX helper nodes and coordinate conversions are exactly identical.
+    namespace fs=std::filesystem;
+    std::error_code pathError;
+    const bool sameFile=fs::equivalent(fs::u8path(characterPath_),
+                                       fs::u8path(path),pathError);
+    if(!pathError && sameFile && scene_->HasAnimations()) {
+        Clip clip;
+        clip.source=scene_;
+        clip.animation=scene_->mAnimations[0];
+        clip.channels=getChannels(clip.animation);
+        clip.sourceBind=targetBind_;
+        for(const auto& kv:clip.sourceBind) {
+            if(std::abs(kv.second.Determinant())>1e-12f) {
+                aiMatrix4x4 inverse=kv.second;
+                inverse.Inverse();
+                clip.sourceBindInverse[kv.first]=inverse;
+            }
+        }
+        clip.sameSkeleton=true;
+        clip.duration=clip.animation->mDuration;
+        clip.ticksPerSecond=clip.animation->mTicksPerSecond>0?
+            clip.animation->mTicksPerSecond:25.0;
+        clips_[name]=std::move(clip);
+        std::fprintf(stderr,
+            "Animation %s: reusing character FBX skeleton and embedded clip\\n",
+            name.c_str());
+        return true;
+    }
     Clip clip;
     clip.importer=std::make_unique<Assimp::Importer>();
     clip.source=clip.importer->ReadFile(path,importFlags);
@@ -308,8 +347,18 @@ void RVAnimation::update(float dt) {
                 // T = B_target * inv(B_source) * A_source(t) * inv(B_target)
                 //
                 // Use root/model-space bind vertices for every mesh.
-                skin=bone.targetBind*inverse->second*current->second*
-                     bone.targetBindInverse;
+                if(clip.sameSkeleton) {
+                    // Standard Assimp linear blend skinning:
+                    // boneGlobal(t) * mesh-local boneOffset * inverse(meshBind).
+                    // This uses the actual bind offset stored in the FBX, not
+                    // the node's rest transform (which can differ in FBX).
+                    skin=current->second*bone.offsetInModelSpace;
+                } else {
+                    // Different FBX: source motion delta conjugated into the
+                    // target character's bind coordinate system.
+                    skin=bone.targetBind*inverse->second*current->second*
+                         bone.targetBindInverse;
+                }
             }
             for(const Weight& w:bone.weights) {
                 if(w.vertex>=part.bindVertices.size()) continue;
@@ -356,6 +405,6 @@ void RVAnimation::draw(Vector3 position,float yaw) const {
 void RVAnimation::unload() {
     for(Part& part:parts_) UnloadModel(part.model);
     parts_.clear();targetBind_.clear();clips_.clear();active_.clear();
-    scene_=nullptr;character_.reset();modelValid_=false;
+    scene_=nullptr;character_.reset();characterPath_.clear();modelValid_=false;
     time_=0;finished_=false;warnedInvalidPose_=false;
 }
