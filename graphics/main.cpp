@@ -236,7 +236,9 @@ int main(int argc, char** argv) {
                         BeginMode3D(camera);
                         DrawPlane(Vector3{0,-0.025f,0},Vector2{1500,1500},Color{65,100,65,255});
                         DrawGrid(80,5);
-                        chassis.draw(pos,orientation,1.0f,Color{235,70,55,255});
+                        // WHITE preserves the imported glTF/GLB base-color textures and materials.
+                        // A red tint multiplies every material color and makes the car red.
+                        chassis.draw(pos,orientation,1.0f,WHITE);
                         // Tire meshes intentionally hidden. Physics raycasts,
                         // steering, anti-roll and tire forces still run normally.
                         EndMode3D();
