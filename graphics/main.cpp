@@ -28,7 +28,7 @@
 #include <memory>
 
 // City streaming: chunks are Luau-owned, sectors are native draw buckets.
-struct CityInstance { int model; Vector3 position; float rotation; };
+struct CityInstance { int model; Vector3 position; float rotation; float scale; };
 struct CitySector { std::vector<CityInstance> instances; };
 struct CityChunk { std::unordered_map<std::int64_t,CitySector> sectors; std::size_t count=0; };
 static std::unordered_map<int,CityChunk> cityChunks;
@@ -64,7 +64,8 @@ static int cityAdd(lua_State* L) {
     const float y=static_cast<float>(luaL_checknumber(L,4));
     const float z=static_cast<float>(luaL_checknumber(L,5));
     const float rotation=static_cast<float>(luaL_optnumber(L,6,0));
-    if (!std::isfinite(x)||!std::isfinite(y)||!std::isfinite(z)||!std::isfinite(rotation)) {
+    const float scale=static_cast<float>(luaL_optnumber(L,7,1));
+    if (!std::isfinite(x)||!std::isfinite(y)||!std::isfinite(z)||!std::isfinite(rotation)||!std::isfinite(scale)||scale<=0.0f) {
         luaL_error(L,"non-finite city transform"); return 0;
     }
     // Sectors use global coordinates, avoiding collisions at negative positions.
@@ -74,7 +75,7 @@ static int cityAdd(lua_State* L) {
         static_cast<std::uint32_t>(sz);
     // Keep the sector hash in a global map keyed by chunk and sector.
     // The sector container uses 64-bit keys (see CityChunk below).
-    cityChunks[chunk].sectors[key].instances.push_back({model,{x,y,z},rotation});
+    cityChunks[chunk].sectors[key].instances.push_back({model,{x,y,z},rotation,scale});
     ++cityChunks[chunk].count;
     ++cityInstanceCount;
     return 0;
@@ -139,8 +140,20 @@ static void drawCity(Vector3 cameraPosition) {
                 if (ix*ix+iz*iz>radius2) continue;
                 const auto it=cityModels.find(instance.model);
                 if (it!=cityModels.end())
-                    DrawModelEx(it->second,instance.position,{0,1,0},
-                        instance.rotation,{1,1,1},WHITE);
+                    {
+                    const BoundingBox bounds=GetModelBoundingBox(it->second);
+                    const float cx=(bounds.min.x+bounds.max.x)*0.5f*instance.scale;
+                    const float cz=(bounds.min.z+bounds.max.z)*0.5f*instance.scale;
+                    const float a=instance.rotation*DEG2RAD;
+                    const float cs=std::cos(a),sn=std::sin(a);
+                    const Vector3 origin={
+                        instance.position.x-cx*cs-cz*sn,
+                        instance.position.y-bounds.min.y*instance.scale,
+                        instance.position.z+cx*sn-cz*cs
+                    };
+                    DrawModelEx(it->second,origin,{0,1,0},instance.rotation,
+                        {instance.scale,instance.scale,instance.scale},WHITE);
+                }
             }
         }
     }
@@ -352,6 +365,9 @@ int main(int argc, char** argv) {
                 status=1;
             } else {
                 // Optional procedural city: loaded after the vehicle script.
+                const std::string metricsScript=resolveCityFile("scripts/city_asset_metrics.luau");
+                if (FileExists(metricsScript.c_str())) loadScript(L,metricsScript.c_str());
+                else std::fprintf(stderr,"[CITY] Asset metrics missing; run Blender converter\\n");
                 const std::string cityScript=resolveCityFile("scripts/city_generator.luau");
                 if (FileExists(cityScript.c_str())) {
                     if (loadScript(L,cityScript.c_str()))
