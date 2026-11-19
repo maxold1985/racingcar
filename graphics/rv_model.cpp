@@ -15,6 +15,30 @@ bool RVModel::load(const std::string& path) {
     model = LoadModel(path.c_str());
     active = IsModelValid(model);
     if (active) {
+        // raylib's GLB/glTF loader imports material parameters and textures.
+        // Do not overwrite model.materials or model.meshMaterial: DrawModelEx
+        // uses them to render the correct material for each mesh.
+        std::fprintf(stderr, "Imported 3D model: %d meshes, %d materials\\n",
+                     model.meshCount, model.materialCount);
+        for (int i = 0; i < model.materialCount; ++i) {
+            const Material& material = model.materials[i];
+            const int albedo = MATERIAL_MAP_ALBEDO;
+            const int normal = MATERIAL_MAP_NORMAL;
+            const int metallic = MATERIAL_MAP_METALNESS;
+            const int roughness = MATERIAL_MAP_ROUGHNESS;
+            const int emission = MATERIAL_MAP_EMISSION;
+            const Color base = material.maps[albedo].color;
+            std::fprintf(stderr,
+                         "  Material %d: baseColor RGBA(%u,%u,%u,%u) | "
+                         "albedo texture %u | normal %u | metallic %u | roughness %u | emissive %u\\n",
+                         i, (unsigned)base.r, (unsigned)base.g,
+                         (unsigned)base.b, (unsigned)base.a,
+                         material.maps[albedo].texture.id,
+                         material.maps[normal].texture.id,
+                         material.maps[metallic].texture.id,
+                         material.maps[roughness].texture.id,
+                         material.maps[emission].texture.id);
+        }
         const BoundingBox box = GetModelBoundingBox(model);
         const Vector3 size = Vector3Subtract(box.max, box.min);
         const float longest = std::max({size.x, size.y, size.z});
