@@ -235,3 +235,15 @@ O teste `tests/test_luau_input.cpp` usa a VM Luau real e o script `scripts/racin
 Observação: `Indices data converted from u32 to u16` é um aviso separado do carregador GLB da raylib e pode causar defeitos na malha, mas não é evidência de bloqueio do teclado.
 
 Referências de suporte: https://luau.org/api/ e https://github.com/luau-lang/luau/blob/master/Compiler/include/luacode.h
+
+
+### Câmera orbital e direção invertida
+
+- **Botão direito do mouse + arrastar:** orbitar ao redor do veículo (yaw e pitch, com limite vertical).
+- **Roda do mouse:** zoom de 3 a 35 metros.
+- **Home:** restaurar ângulo e distância da câmera.
+- **W/S:** acelerar / marcha à ré; **espaço:** frear.
+- **A/seta esquerda:** direção invertida (+1); **D/seta direita:** direção invertida (-1).
+- **R:** reiniciar posição e velocidade do veículo.
+
+A câmera acompanha a posição do carro com suavização exponencial, mas usa orientação vertical global para evitar que capotamentos girem a câmera. A alteração de direção foi feita na leitura de teclado em `graphics/main.cpp`; a API física `Physics.setControls` mantém sua convenção original.
