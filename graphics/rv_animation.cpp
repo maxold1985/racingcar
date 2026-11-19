@@ -89,12 +89,27 @@ void gatherPose(const aiNode* node, const aiMatrix4x4& parent,
         aiQuaternion rotation;
         local.Decompose(scale,rotation,position);
         const aiNodeAnim* c=channel->second;
+        const aiMatrix4x4 bindLocal=local;
         const aiVector3D p=samplePosition(c,tick,position);
         const aiQuaternion q=sampleRotation(c,tick,rotation);
         const aiVector3D s=sampleScale(c,tick,scale);
         local=aiMatrix4x4(s.x,0,0,0, 0,s.y,0,0, 0,0,s.z,0, 0,0,0,1);
         local=aiMatrix4x4(q.GetMatrix())*local;
         local.a4=p.x;local.b4=p.y;local.c4=p.z;
+        // FBX channels may use a different local origin than the node's
+        // imported bind transform. Apply relative motion from frame zero
+        // instead of replacing the bind transform with absolute FBX keys.
+        const aiVector3D p0=samplePosition(c,0.0,position);
+        const aiQuaternion q0=sampleRotation(c,0.0,rotation);
+        const aiVector3D s0=sampleScale(c,0.0,scale);
+        aiMatrix4x4 first(s0.x,0,0,0, 0,s0.y,0,0,
+                          0,0,s0.z,0, 0,0,0,1);
+        first=aiMatrix4x4(q0.GetMatrix())*first;
+        first.a4=p0.x;first.b4=p0.y;first.c4=p0.z;
+        if(std::abs(first.Determinant())>1e-12f) {
+            first.Inverse();
+            local=bindLocal*first*local;
+        }
     }
     const aiMatrix4x4 world=parent*local;
     // Auxiliary FBX nodes retain unique keys (e.g. Hips_$AssimpFbx$_Rotation).
