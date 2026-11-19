@@ -1,0 +1,13 @@
+# racingcar startup configuration (paths relative to THIS file)
+# Supported keys: car, script, pavement, character, idle, walking, enter_car
+# Use forward slashes or Windows backslashes; quotes are optional.
+car = "assets/car retro.glb"
+script = scripts/racing_game.luau
+pavement = assets/pavimento.webp
+
+# Optional character and Mixamo FBX animations.
+# Empty values disable the optional asset.
+character =
+idle =
+walking =
+enter_car =
