@@ -1,6 +1,5 @@
 #include <assimp/matrix4x4.h>
 #include <assimp/vector3.h>
-#include <cassert>
 #include <cmath>
 #include <cstdio>
 
@@ -28,7 +27,7 @@ int main() {
     const aiMatrix4x4 sourceBind=translation(15.0f,4.0f,-8.0f);
     const aiVector3D vertex(-3.0f,9.0f,3.0f);
     const aiVector3D atRest=retarget(targetBind,sourceBind,sourceBind)*vertex;
-    assert(closeEnough(atRest,vertex));
+    if(!closeEnough(atRest,vertex)) { std::fputs("FAIL: bind pose changed\n",stderr); return 1; }
 
     // A 90-degree source bone rotation must happen about the TARGET joint.
     aiMatrix4x4 rotation;
@@ -37,7 +36,7 @@ int main() {
     const aiMatrix4x4 sourceFrame=sourceBind*rotation;
     const aiMatrix4x4 transformed=retarget(targetBind,sourceBind,sourceFrame);
     const aiMatrix4x4 expected=targetBind*rotation*translation(3.0f,-8.0f,-2.0f);
-    assert(closeEnough(transformed*vertex,expected*vertex));
+    if(!closeEnough(transformed*vertex,expected*vertex)) { std::fputs("FAIL: joint retarget\n",stderr); return 2; }
 
     // Weighted linear blend skinning at bind pose may never displace vertices.
     const aiMatrix4x4 bindA=translation(1,0,0);
@@ -46,7 +45,7 @@ int main() {
     const aiVector3D blended=
         (retarget(bindA,sourceBind,sourceBind)*p)*0.3f+
         (retarget(bindB,sourceBind,sourceBind)*p)*0.7f;
-    assert(closeEnough(blended,p));
+    if(!closeEnough(blended,p)) { std::fputs("FAIL: weighted bind\n",stderr); return 3; }
     std::puts("Mixamo source/target bind-pose retargeting OK");
     return 0;
 }
