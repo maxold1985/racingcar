@@ -55,6 +55,11 @@ private:
     const aiScene* scene_=nullptr;
     std::vector<Part> parts_;
     std::vector<Texture2D> ownedTextures_;
+    Shader pbrShader_{};
+    int pbrViewLocation_=-1;
+    int pbrNormalLocation_=-1;
+    int pbrMetalLocation_=-1;
+    int pbrRoughLocation_=-1;
     Pose targetBind_;
     std::unordered_map<std::string,Clip> clips_;
     std::string active_;
