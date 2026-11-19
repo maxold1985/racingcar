@@ -50,6 +50,19 @@ if(RV_WITH_LUAU)
     target_link_libraries(raycast_luau_demo PRIVATE raycast_vehicle_static Luau.VM Luau.Compiler)
     target_compile_definitions(raycast_luau_demo PRIVATE RV_DEFAULT_SCRIPT_PATH=\"${CMAKE_CURRENT_SOURCE_DIR}/scripts/race.luau\")
     file(COPY "${CMAKE_CURRENT_SOURCE_DIR}/scripts" DESTINATION "${CMAKE_CURRENT_BINARY_DIR}")
+
+    # Headless test catches frozen inputs in the embedded Luau VM.
+    add_executable(rv_luau_input_tests tests/test_luau_input.cpp src/rv_luau.cpp)
+    target_include_directories(rv_luau_input_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/include"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+        "${luau_SOURCE_DIR}/VM/include"
+        "${luau_SOURCE_DIR}/Compiler/include")
+    target_link_libraries(rv_luau_input_tests PRIVATE
+        raycast_vehicle_static Luau.VM Luau.Compiler)
+    target_compile_definitions(rv_luau_input_tests PRIVATE
+        RV_GAME_SCRIPT_PATH="${CMAKE_CURRENT_SOURCE_DIR}/scripts/racing_game.luau")
+    add_test(NAME luau_live_input COMMAND rv_luau_input_tests)
 endif()
 
 if(RV_WITH_GRAPHICS)
