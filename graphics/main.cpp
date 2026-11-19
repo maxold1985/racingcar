@@ -324,6 +324,9 @@ int main(int argc, char** argv) {
                     // Only non-negative, bounded balances are accepted from disk.
                     constexpr int maxWallet=100000000;
                     int wallet=0;
+                    float vehicleCondition=100.0f;
+                    float collisionCooldown=0.0f;
+                    constexpr int repairCostPerPoint=8;
                     int engineUpgrade=0, tireUpgrade=0, suspensionUpgrade=0;
                     int deliveryUpgrade=0; // 0..3, permanent payout upgrade
                     constexpr int upgradePrices[3]={600,1200,2400};
@@ -341,6 +344,10 @@ int main(int argc, char** argv) {
                            t>=0 && t<=3 && s>=0 && s<=3) {
                             engineUpgrade=e; tireUpgrade=t; suspensionUpgrade=s;
                         }
+                        float savedCondition=100.0f;
+                        if(save >> savedCondition && std::isfinite(savedCondition) &&
+                           savedCondition>=0.0f && savedCondition<=100.0f)
+                            vehicleCondition=savedCondition;
                     }
                     rv_vehicle_apply_upgrades(car,engineUpgrade,tireUpgrade,suspensionUpgrade);
                     const std::array<int,3> missionCrates{{1,2,4}};
@@ -389,7 +396,8 @@ int main(int argc, char** argv) {
                             std::ofstream save(walletSavePath,std::ios::trunc);
                             if(save) save << wallet << '\n' << deliveryUpgrade << '\n'
                                           << engineUpgrade << ' ' << tireUpgrade << ' '
-                                          << suspensionUpgrade << '\n';
+                                          << suspensionUpgrade << '\n'
+                                          << vehicleCondition << '\n';
                         };
                         const auto purchaseUpgrade=[&](int& level,int price) {
                             if(!atGarage || level>=3 || wallet<price) return;
@@ -398,6 +406,14 @@ int main(int argc, char** argv) {
                             rv_vehicle_apply_upgrades(car,engineUpgrade,tireUpgrade,suspensionUpgrade);
                             saveGarage();
                         };
+                        const int repairCost=static_cast<int>(
+                            std::ceil((100.0f-vehicleCondition)*repairCostPerPoint));
+                        if(atGarage && IsKeyPressed(KEY_FOUR) &&
+                           repairCost>0 && wallet>=repairCost) {
+                            wallet-=repairCost;
+                            vehicleCondition=100.0f;
+                            saveGarage();
+                        }
                         if(atGarage && IsKeyPressed(KEY_ONE))
                             purchaseUpgrade(engineUpgrade,800*(engineUpgrade+1));
                         if(atGarage && IsKeyPressed(KEY_TWO))
@@ -563,6 +579,21 @@ int main(int argc, char** argv) {
                             enemyPosition.x+=std::sin(enemyYaw)*enemySpeed*frame;
                             enemyPosition.z+=std::cos(enemyYaw)*enemySpeed*frame;
                         }
+                        // Enemy contact damage uses a cooldown to avoid per-frame hits.
+                        collisionCooldown=std::max(0.0f,collisionCooldown-frame);
+                        const float enemyGap=std::hypot(pos.x-enemyPosition.x,
+                                                       pos.z-enemyPosition.z);
+                        if(enemyGap<3.0f && collisionCooldown<=0.0f &&
+                           enemySpeed>2.0f && vehicleCondition>0.0f) {
+                            vehicleCondition=std::max(0.0f,vehicleCondition-
+                                std::clamp(enemySpeed*1.5f,5.0f,20.0f));
+                            collisionCooldown=2.0f;
+                            std::ofstream save(walletSavePath,std::ios::trunc);
+                            if(save) save << wallet << '\n' << deliveryUpgrade << '\n'
+                                          << engineUpgrade << ' ' << tireUpgrade << ' '
+                                          << suspensionUpgrade << '\n'
+                                          << vehicleCondition << '\n';
+                        }
 
                         const float distanceToDelivery=std::hypot(
                             pos.x-deliveryZone.x,pos.z-deliveryZone.z);
@@ -577,7 +608,8 @@ int main(int argc, char** argv) {
                                 std::ofstream save(walletSavePath,std::ios::trunc);
                                 if(save) save << wallet << '\n' << deliveryUpgrade << '\n'
                                               << engineUpgrade << ' ' << tireUpgrade << ' '
-                                              << suspensionUpgrade << '\n';
+                                              << suspensionUpgrade << '\n'
+                                              << vehicleCondition << '\n';
                                 else std::fprintf(stderr,"Unable to save Cargo Run wallet\n");
                             }
                             removeMissionCargo();
@@ -993,24 +1025,29 @@ int main(int argc, char** argv) {
                          if(mission==Mission::Completed)
                              DrawText(TextFormat("REWARD: $%d",missionReward),20,342,18,GREEN);
                          else DrawText("N contract | Q store | F exit | TAB inventory",20,342,16,LIGHTGRAY);
+                         DrawText(TextFormat("VEHICLE CONDITION: %.0f%%",vehicleCondition),
+                                  20,365,18,vehicleCondition>40.0f?GREEN:RED);
                          if(atGarage) {
-                             DrawRectangle(10,375,620,145,Fade(BLACK,0.80f));
+                             DrawRectangle(10,395,620,170,Fade(BLACK,0.80f));
                              DrawText(TextFormat("GARAGE | Delivery bonus: +%d%%",deliveryUpgrade*10),
-                                      20,382,20,GOLD);
+                                      20,402,20,GOLD);
                              DrawText(TextFormat("1 Engine +12%%: $%d (Lv %d/3)",
                                       engineUpgrade<3?800*(engineUpgrade+1):0,engineUpgrade),
-                                      20,408,18,RAYWHITE);
+                                      20,428,18,RAYWHITE);
                              DrawText(TextFormat("2 Tires +8%% grip: $%d (Lv %d/3)",
                                       tireUpgrade<3?650*(tireUpgrade+1):0,tireUpgrade),
-                                      20,432,18,RAYWHITE);
+                                      20,452,18,RAYWHITE);
                              DrawText(TextFormat("3 Suspension +8%%: $%d (Lv %d/3)",
                                       suspensionUpgrade<3?700*(suspensionUpgrade+1):0,suspensionUpgrade),
-                                      20,456,18,RAYWHITE);
+                                      20,476,18,RAYWHITE);
                              if(deliveryUpgrade<3)
                                  DrawText(TextFormat("U: Upgrade delivery bonus (+10%%) - $%d",
                                                    upgradePrices[deliveryUpgrade]),
-                                          20,480,18,RAYWHITE);
-                             else DrawText("All delivery upgrades purchased",20,480,18,GREEN);
+                                          20,500,18,RAYWHITE);
+                             else DrawText("All delivery upgrades purchased",20,500,18,GREEN);
+                             DrawText(TextFormat("4 Repair vehicle: $%d (Condition %.0f%%)",
+                                                 repairCost,vehicleCondition),
+                                      20,524,18,vehicleCondition<100.0f?YELLOW:GREEN);
                          }
                          DrawFPS(GetScreenWidth()-100,20);
                         EndDrawing();
