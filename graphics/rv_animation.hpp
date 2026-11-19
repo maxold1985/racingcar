@@ -27,6 +27,7 @@ private:
         std::string name;
         aiMatrix4x4 targetBind;
         aiMatrix4x4 targetBindInverse;
+        aiMatrix4x4 offsetInModelSpace; // Assimp mesh-local offset converted to model space
         std::vector<Weight> weights;
     };
     struct Part {
@@ -44,7 +45,8 @@ private:
         const aiAnimation* animation=nullptr;
         std::unordered_map<std::string, const aiNodeAnim*> channels;
         Pose sourceBind;                     // source's own rest hierarchy
-        Pose sourceBindInverse;              // inverted once at import
+        Pose sourceBindInverse;
+        bool sameSkeleton=false;              // inverted once at import
         double duration=0.0;
         double ticksPerSecond=25.0;
     };
