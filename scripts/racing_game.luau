@@ -7,8 +7,10 @@ local car = Physics.newVehicle({
     engineForce = 6500,
     brakeForce = 9500,
     maxSteer = math.rad(25),
-    antirollFront = 9000,
-    antirollRear = 7000,
+    -- Anti-roll bar stiffness in N/m: front and rear axle independently.
+    -- The physics core transfers suspension force between left/right wheels.
+    antirollFront = 12000,
+    antirollRear = 9000,
 })
 
 local function addWheel(x, z, front)
