@@ -264,8 +264,8 @@ int main(int argc, char** argv) {
                              (IsKeyDown(KEY_S)||IsKeyDown(KEY_DOWN)) ? -0.45f : 0.0f) : 0.0f;
                         const float brake=player.insideCar ? (IsKeyDown(KEY_SPACE)?1.0f:0.0f) : 1.0f;
                         const float steer=player.insideCar ?
-                            ((IsKeyDown(KEY_A)||IsKeyDown(KEY_LEFT) ? 1.0f : 0.0f)
-                            -(IsKeyDown(KEY_D)||IsKeyDown(KEY_RIGHT) ? 1.0f : 0.0f)) : 0.0f;
+                            ((IsKeyDown(KEY_D)||IsKeyDown(KEY_RIGHT) ? 1.0f : 0.0f)
+                            -(IsKeyDown(KEY_A)||IsKeyDown(KEY_LEFT) ? 1.0f : 0.0f)) : 0.0f;
                         int steps=0;
                         bool running=true;
                         while (accumulator>=fixedDt && steps<12) {
