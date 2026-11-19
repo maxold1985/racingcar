@@ -34,8 +34,8 @@ void RVPlayer::update(float dt, const Camera3D& camera) {
     const Vector3 right=Vector3{forward.z,0,-forward.x};
     const float fb=(IsKeyDown(KEY_W)||IsKeyDown(KEY_UP)?1.0f:0.0f)
                   -(IsKeyDown(KEY_S)||IsKeyDown(KEY_DOWN)?1.0f:0.0f);
-    const float lr=(IsKeyDown(KEY_D)||IsKeyDown(KEY_RIGHT)?1.0f:0.0f)
-                  -(IsKeyDown(KEY_A)||IsKeyDown(KEY_LEFT)?1.0f:0.0f);
+    const float lr=(IsKeyDown(KEY_A)||IsKeyDown(KEY_LEFT)?1.0f:0.0f)
+                  -(IsKeyDown(KEY_D)||IsKeyDown(KEY_RIGHT)?1.0f:0.0f);
     Vector3 movement=Vector3Add(Vector3Scale(forward,fb),Vector3Scale(right,lr));
     if (Vector3LengthSqr(movement)>0.0001f) {
         movement=Vector3Normalize(movement);
