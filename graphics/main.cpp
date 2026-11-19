@@ -249,8 +249,8 @@ int main(int argc, char** argv) {
                         door.y=0.0f;
                         const bool nearDoor=!player.insideCar &&
                             Vector3Distance(player.position(),door)<=enterRadius;
-                        // Space is context-sensitive: enter at the ghost marker, brake while driving.
-                        if (nearDoor && IsKeyPressed(KEY_SPACE)) {
+                        // E enters at the door; Space jumps on foot and brakes while driving.
+                        if (nearDoor && IsKeyPressed(KEY_E)) {
                             player.insideCar=true;
                             accumulator=0.0f;
                         } else if (player.insideCar && IsKeyPressed(KEY_F)) {
@@ -369,7 +369,7 @@ int main(int argc, char** argv) {
                         DrawText(TextFormat("Speed: %.1f km/h",state.speed_kmh),20,20,24,RAYWHITE);
                         DrawText(player.insideCar ?
                             "DRIVING: W/S accelerate | A/D steer | SPACE brake | F exit" :
-                            "ON FOOT: WASD move | SPACE enter at blue door ghost",20,54,16,RAYWHITE);
+                            "ON FOOT: WASD move | SPACE jump | E enter car",20,54,16,RAYWHITE);
                         DrawText("R reset | RMB orbit | Wheel zoom | HOME camera | ESC quit",20,75,16,RAYWHITE);
                         DrawText(TextFormat("INPUT: throttle %.2f | brake %.2f | steer %.2f",
                                             throttle,brake,steer),20,100,18,YELLOW);
@@ -383,7 +383,7 @@ int main(int argc, char** argv) {
                                             ctx.physics_steps,IsWindowFocused()?"YES":"NO"),
                                  20,173,18,ctx.physics_steps>0?GREEN:RED);
                         DrawText(pavementLoaded ? "PAVEMENT: WEBP OK" : "PAVEMENT: NOT LOADED",20,198,18,pavementLoaded?GREEN:RED);
-                        if (nearDoor) DrawText("SPACE: ENTER CAR",GetScreenWidth()/2-110,GetScreenHeight()-85,24,GREEN);
+                        if (nearDoor) DrawText("E: ENTER CAR",GetScreenWidth()/2-110,GetScreenHeight()-85,24,GREEN);
                         DrawFPS(GetScreenWidth()-100,20);
                         EndDrawing();
                     }
