@@ -10,6 +10,19 @@ namespace {
 constexpr unsigned int importFlags =
     aiProcess_Triangulate | aiProcess_JoinIdenticalVertices |
     aiProcess_LimitBoneWeights | aiProcess_GenSmoothNormals;
+std::string boneKey(std::string name) {
+    // Mixamo exports may use "mixamorig:Hips" or "Armature|mixamorig:Hips".
+    const auto separator=name.find_last_of(":|");
+    if(separator!=std::string::npos) name=name.substr(separator+1);
+    return name;
+}
+void findMeshNodes(const aiNode* node,const aiMatrix4x4& parent,
+                   std::unordered_map<unsigned,aiMatrix4x4>& transforms) {
+    const aiMatrix4x4 global=parent*node->mTransformation;
+    for(unsigned i=0;i<node->mNumMeshes;++i) transforms[node->mMeshes[i]]=global;
+    for(unsigned i=0;i<node->mNumChildren;++i)
+        findMeshNodes(node->mChildren[i],global,transforms);
+}
 aiVector3D interpolatePosition(const aiNodeAnim* c,double t,const aiVector3D& fallback) {
     if (!c || !c->mNumPositionKeys) return fallback;
     if (c->mNumPositionKeys==1 || t<=c->mPositionKeys[0].mTime) return c->mPositionKeys[0].mValue;
@@ -64,11 +77,16 @@ bool RVAnimation::loadCharacter(const char* path) {
     const float extreme=std::numeric_limits<float>::max();
     aiVector3D low(extreme,extreme,extreme);
     aiVector3D high(-extreme,-extreme,-extreme);
+    std::unordered_map<unsigned,aiMatrix4x4> meshNodes;
+    findMeshNodes(scene_->mRootNode,aiMatrix4x4(),meshNodes);
     for(unsigned mi=0;mi<scene_->mNumMeshes;++mi) {
         const aiMesh* src=scene_->mMeshes[mi];
         if(!src->mNumVertices || !src->mNumFaces) continue;
         Part part;
         part.bindVertices.assign(src->mVertices,src->mVertices+src->mNumVertices);
+        // Meshes are in their node-local bind space; preserve that node transform.
+        const auto nodeIt=meshNodes.find(mi);
+        const aiMatrix4x4 meshBind=nodeIt==meshNodes.end()?aiMatrix4x4():nodeIt->second;
         Mesh mesh{};
         mesh.vertexCount=int(src->mNumVertices);
         mesh.triangleCount=int(src->mNumFaces);
@@ -82,7 +100,7 @@ bool RVAnimation::loadCharacter(const char* path) {
             continue;
         }
         for(unsigned i=0;i<src->mNumVertices;++i) {
-            const auto v=src->mVertices[i];
+            const auto v=meshBind*src->mVertices[i];
             low.x=std::min(low.x,v.x);low.y=std::min(low.y,v.y);low.z=std::min(low.z,v.z);
             high.x=std::max(high.x,v.x);high.y=std::max(high.y,v.y);high.z=std::max(high.z,v.z);
             mesh.vertices[i*3]=v.x;mesh.vertices[i*3+1]=v.y;mesh.vertices[i*3+2]=v.z;
@@ -99,8 +117,9 @@ bool RVAnimation::loadCharacter(const char* path) {
         for(unsigned b=0;b<src->mNumBones;++b) {
             const aiBone* sb=src->mBones[b];
             Bone bone;
-            bone.name=sb->mName.C_Str();
-            bone.offset=sb->mOffsetMatrix;
+            bone.name=boneKey(sb->mName.C_Str());
+            // Mesh-local bind vertices need the mesh node transform before skinning.
+            bone.offset=sb->mOffsetMatrix*meshBind;
             for(unsigned w=0;w<sb->mNumWeights;++w)
                 bone.weights.push_back({sb->mWeights[w].mVertexId,sb->mWeights[w].mWeight});
             part.bones.push_back(std::move(bone));
@@ -156,7 +175,7 @@ void RVAnimation::evaluate(const aiNode* node,const aiMatrix4x4& parent,
     if(animation) {
         for(unsigned i=0;i<animation->mNumChannels;++i) {
             const aiNodeAnim* c=animation->mChannels[i];
-            if(node->mName!=c->mNodeName) continue;
+            if(boneKey(node->mName.C_Str())!=boneKey(c->mNodeName.C_Str())) continue;
             aiVector3D baseScale,basePosition;aiQuaternion baseRotation;
             node->mTransformation.Decompose(baseScale,baseRotation,basePosition);
             const aiVector3D p=interpolatePosition(c,tick,basePosition);
@@ -169,7 +188,7 @@ void RVAnimation::evaluate(const aiNode* node,const aiMatrix4x4& parent,
         }
     }
     const aiMatrix4x4 global=parent*local;
-    transforms[node->mName.C_Str()]=global;
+    transforms[boneKey(node->mName.C_Str())]=global;
     for(unsigned i=0;i<node->mNumChildren;++i)
         evaluate(node->mChildren[i],global,animation,tick,transforms);
 }
@@ -186,6 +205,8 @@ void RVAnimation::update(float dt) {
     }
     std::unordered_map<std::string,aiMatrix4x4> transforms;
     evaluate(scene_->mRootNode,aiMatrix4x4(),clip.animation,tick,transforms);
+    // Transform from scene-global space back into the model root space.
+    // Assimp bone offsets already encode the mesh bind pose.
     aiMatrix4x4 rootInverse=scene_->mRootNode->mTransformation;
     rootInverse.Inverse();
     for(Part& part:parts_) {
@@ -199,7 +220,7 @@ void RVAnimation::update(float dt) {
             const aiMatrix4x4 transform=rootInverse*found->second*bone.offset;
             for(const Weight& w:bone.weights) {
                 if(w.vertex>=result.size()) continue;
-                result[w.vertex]+=transform*part.bindVertices[w.vertex]*w.weight;
+                result[w.vertex]+=(transform*part.bindVertices[w.vertex])*w.weight;
                 total[w.vertex]+=w.weight;
             }
         }
