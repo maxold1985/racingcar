@@ -315,6 +315,33 @@ int main(int argc, char** argv) {
                         }
                         return true;
                     };
+                    enum class Mission { Available, Pickup, Delivering, Completed, Failed };
+                    Mission mission=Mission::Available;
+                    constexpr float missionLimit=480.0f;
+                    float missionTime=missionLimit;
+                    int missionReward=0;
+                    const std::array<int,3> missionCrates{{1,2,4}};
+                    const Vector3 deliveryZone{state.position.x+8.0f,0.05f,state.position.z+65.0f};
+                    auto missionCargo=[&]() {
+                        int count=0;
+                        for(int id:missionCrates) if(grabBoxes[id].stored) ++count;
+                        return count;
+                    };
+                    auto removeMissionCargo=[&]() {
+                        for(auto it=inventory.begin();it!=inventory.end();) {
+                            for(int k=0;k<it->quantity;) {
+                                bool required=false;
+                                for(int id:missionCrates) if(it->crates[k]==id) required=true;
+                                if(required) {
+                                    for(int j=k;j+1<it->quantity;++j) it->crates[j]=it->crates[j+1];
+                                    it->crates[--it->quantity]=-1;
+                                } else ++k;
+                            }
+                            if(it->quantity==0) it=inventory.erase(it);
+                            else ++it;
+                        }
+                        selectedItem=-1;
+                    };
                     int grabbedBox=-1;
                     float grabDistance=5.0f;
                     Vector3 grabEnd{0,0,0};
@@ -323,6 +350,28 @@ int main(int argc, char** argv) {
                     while (!WindowShouldClose()) {
                         float frame=std::min(GetFrameTime(),0.1f);
                         accumulator+=frame;
+                        if(IsKeyPressed(KEY_N) &&
+                           (mission==Mission::Available || mission==Mission::Completed ||
+                            mission==Mission::Failed)) {
+                            removeMissionCargo();
+                            for(int id:missionCrates) {
+                                GrabBox& box=grabBoxes[id];
+                                box.stored=false;
+                                box.velocity=Vector3{0,0,0};
+                                box.position=Vector3{
+                                    state.position.x+5.0f+(id%4)*1.8f,0.425f,
+                                    state.position.z-2.0f+(id/4)*2.0f};
+                            }
+                            mission=Mission::Pickup;
+                            missionTime=missionLimit;
+                            missionReward=0;
+                        }
+                        if(mission==Mission::Pickup || mission==Mission::Delivering) {
+                            missionTime=std::max(0.0f,missionTime-frame);
+                            if(missionTime<=0.0f) mission=Mission::Failed;
+                            else mission=missionCargo()==3?Mission::Delivering:Mission::Pickup;
+                        }
+
                         if (player.insideCar && IsKeyPressed(KEY_R)) {
                             // Manual recovery from rollovers or unstable states.
                             rv_vehicle_set_pose(car,RVVec3{0,1.0f,0},RVQuat{0,0,0,1});
@@ -455,6 +504,15 @@ int main(int argc, char** argv) {
                             enemyPosition.z+=std::cos(enemyYaw)*enemySpeed*frame;
                         }
 
+                        const float distanceToDelivery=std::hypot(
+                            pos.x-deliveryZone.x,pos.z-deliveryZone.z);
+                        if(mission==Mission::Delivering && missionCargo()==3 &&
+                           distanceToDelivery<6.0f && player.insideCar &&
+                           std::abs(state.speed_kmh)<5.0f) {
+                            mission=Mission::Completed;
+                            missionReward=450+static_cast<int>(missionTime*0.15f);
+                            removeMissionCargo();
+                        }
                         // Right mouse button: cast a red ray and grab the nearest box.
                         // The ray is cast from the camera through the mouse cursor.
                         const Ray grabRay=GetScreenToWorldRay(GetMousePosition(),camera);
@@ -722,6 +780,10 @@ int main(int argc, char** argv) {
                                             enemyPosition.z},0.24f,
                                    enemyChasing?RED:YELLOW);
 
+                        DrawCylinder(deliveryZone,6.0f,6.0f,0.08f,32,Fade(GREEN,0.3f));
+                        DrawCylinderWires(deliveryZone,6.0f,6.0f,0.08f,32,DARKGREEN);
+                        DrawLine3D(deliveryZone,Vector3{deliveryZone.x,6.0f,deliveryZone.z},GREEN);
+                        DrawSphere(Vector3{deliveryZone.x,6.0f,deliveryZone.z},0.45f,GREEN);
                         player.draw();
                         // Green fake contact shadow: footprint stays on the ground
                         // even when a crate is lifted by the red ray.
@@ -843,7 +905,23 @@ int main(int argc, char** argv) {
                             enemyChasing?"CHASE":"PATROL",
                             std::hypot(pos.x-enemyPosition.x,pos.z-enemyPosition.z),
                             enemyWaypoint+1),20,224,18,enemyChasing?RED:SKYBLUE);
-                        DrawFPS(GetScreenWidth()-100,20);
+                        DrawRectangle(10,260,555,108,Fade(BLACK,0.78f));
+                         DrawText("CARGO RUN - CONTRACT 001",20,268,20,GOLD);
+                         const char* missionLabel=
+                             mission==Mission::Available?"N: ACCEPT DELIVERY CONTRACT":
+                             mission==Mission::Pickup?"COLLECT CRATES 1, 2, 4 (RMB + Q)":
+                             mission==Mission::Delivering?"DRIVE TO GREEN MARKER AND STOP":
+                             mission==Mission::Completed?"DELIVERY COMPLETE! N: RESTART":
+                             "TIME EXPIRED! N: RETRY";
+                         DrawText(missionLabel,20,294,18,RAYWHITE);
+                         DrawText(TextFormat("Cargo %d/3 | Time %02d:%02d | Distance %.0f m",
+                             missionCargo(),static_cast<int>(missionTime)/60,
+                             static_cast<int>(missionTime)%60,distanceToDelivery),
+                             20,318,18,SKYBLUE);
+                         if(mission==Mission::Completed)
+                             DrawText(TextFormat("REWARD: $%d",missionReward),20,342,18,GREEN);
+                         else DrawText("N contract | Q store | F exit | TAB inventory",20,342,16,LIGHTGRAY);
+                         DrawFPS(GetScreenWidth()-100,20);
                         EndDrawing();
                     }
                     player.unload();
