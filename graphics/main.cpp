@@ -375,12 +375,16 @@ int main(int argc, char** argv) {
                         float frame=std::min(GetFrameTime(),0.1f);
                         accumulator+=frame;
                         // Garage shop: U purchases a permanent payout upgrade.
-                        // Player must be on foot, near the starting garage.
+                        // Garage access is free: stop the car inside the marked zone
+                        // or walk into it. Money is only required for purchases.
+                        const RVBodyState garageCarState=rv_vehicle_get_state(car);
                         const Vector3 garagePlayerPosition=player.insideCar ?
-                            toRay(rv_vehicle_get_state(car).position) : player.position();
-                        const bool atGarage=!player.insideCar &&
+                            toRay(garageCarState.position) : player.position();
+                        const bool garageInRange=
                             std::hypot(garagePlayerPosition.x-garageZone.x,
-                                       garagePlayerPosition.z-garageZone.z)<8.0f;
+                                       garagePlayerPosition.z-garageZone.z)<=12.0f;
+                        const bool atGarage=garageInRange &&
+                            (!player.insideCar || std::abs(garageCarState.speed_kmh)<2.0f);
                         const auto saveGarage=[&]() {
                             std::ofstream save(walletSavePath,std::ios::trunc);
                             if(save) save << wallet << '\n' << deliveryUpgrade << '\n'
@@ -845,8 +849,8 @@ int main(int argc, char** argv) {
                                             enemyPosition.z},0.24f,
                                    enemyChasing?RED:YELLOW);
 
-                        DrawCylinder(garageZone,8.0f,8.0f,0.06f,32,Fade(GOLD,0.22f));
-                        DrawCylinderWires(garageZone,8.0f,8.0f,0.06f,32,GOLD);
+                        DrawCylinder(garageZone,12.0f,12.0f,0.06f,32,Fade(GOLD,0.22f));
+                        DrawCylinderWires(garageZone,12.0f,12.0f,0.06f,32,GOLD);
                         DrawCylinder(deliveryZone,6.0f,6.0f,0.08f,32,Fade(GREEN,0.3f));
                         DrawCylinderWires(deliveryZone,6.0f,6.0f,0.08f,32,DARKGREEN);
                         DrawLine3D(deliveryZone,Vector3{deliveryZone.x,6.0f,deliveryZone.z},GREEN);
