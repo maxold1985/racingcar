@@ -1,20 +1,24 @@
-Testes executados no ambiente Linux (GCC 14.2 / CMake / Ninja).
+Racingcar - Vector operators update (2026-11-19)
 
-Nucleo C11:
-- Biblioteca compartilhada: compilada (libraycast_vehicle.so)
-- Biblioteca estatica: compilada (libraycast_vehicle_static.a)
-- ctest vehicle_core: PASSOU
-- Equilibrio estatico: altura ~0.981 m; velocidade vertical ~0.000 m/s
-- Aceleracao por 3 s: velocidade ~42.79 km/h
-- Frenagem: velocidade final ~0 km/h
-- Teste com direcao + frenagem por 10 s: comportamento numerico sem divergencia
+LOCAL TEST ENVIRONMENT: Linux, GNU C/C++ 14.2, CMake, Ninja
 
-Wrapper Luau:
-- Sintaxe C++ verificada contra declaracoes do C API (stub local)
-- Linkagem/execucao real Luau NAO TESTADA neste ambiente,
-  pois nao foi possivel baixar luau-lang/luau pela rede.
-- Para testar o wrapper use o projeto CMake com RV_WITH_LUAU=ON no seu PC.
+Build:
+cmake -S . -B build -DRV_WITH_LUAU=OFF -DCMAKE_BUILD_TYPE=Release -G Ninja
+cmake --build build
+ctest --test-dir build --output-on-failure
 
-Limitacoes:
-- Nao inclui colisao do chassi nem resposta contra obstaculos.
-- Raycast demo usa um plano infinito Y=0; mundo 3D real depende do host.
+Result: 2/2 passed
+- vehicle_core: PASS (tests/test_vehicle.c, C API consumed from C)
+- vector_operators: PASS (tests/test_vec3.cpp; operator arithmetic; ABI size/traits)
+- The new physics core is src/rv_physics.cpp (C++17) but C API still uses extern "C".
+
+Luau wrapper:
+- C++17 syntax-only compilation passed with local stub of Luau C API declarations.
+- Native vector APIs verified against https://luau.org/api/
+- END-TO-END LuaU VM BUILD/EXECUTION NOT TESTED in this environment.
+- Windows compilation with Visual Studio 2022 NOT TESTED in this environment.
+
+Limitations:
+- Engine host must provide raycasts; flat Y=0 sample only.
+- Chassis and world collision not implemented.
+- Tires use simplified friction circle; no rigid wheel inertia / Pacejka tire model.
