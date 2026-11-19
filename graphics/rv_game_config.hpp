@@ -8,6 +8,7 @@ struct RVGameConfig {
     std::string character;
     std::string idle;
     std::string walking;
+    std::string jump;
     std::string enterCar;
 };
 
