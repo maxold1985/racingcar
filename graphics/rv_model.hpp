@@ -17,9 +17,11 @@ public:
     void unload();
     void draw(Vector3 position, Quaternion rotation, float scale, Color tint) const;
     bool loaded() const { return active; }
+    Vector3 collisionHalfExtents() const { return collisionHalfExtents_; }
 private:
     Model model{};
     bool active = false;
     float modelScale = 1.0f;
     Vector3 modelCenter{0,0,0};
+    Vector3 collisionHalfExtents_{0.85f,0.75f,1.75f};
 };
