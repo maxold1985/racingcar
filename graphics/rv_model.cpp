@@ -14,7 +14,17 @@ bool RVModel::load(const std::string& path) {
     }
     model = LoadModel(path.c_str());
     active = IsModelValid(model);
-    if (!active) std::fprintf(stderr, "Failed to load model: %s\n", path.c_str());
+    if (active) {
+        const BoundingBox box = GetModelBoundingBox(model);
+        const Vector3 size = Vector3Subtract(box.max, box.min);
+        const float longest = std::max({size.x, size.y, size.z});
+        if (std::isfinite(longest) && longest > 1e-5f) {
+            modelScale = 3.5f / longest;
+            modelCenter = Vector3Scale(Vector3Add(box.min, box.max), 0.5f);
+            std::fprintf(stderr, "Model dimensions: %.3f x %.3f x %.3f, scale %.6f\n",
+                         size.x, size.y, size.z, modelScale);
+        }
+    } else std::fprintf(stderr, "Failed to load model: %s\n", path.c_str());
     return active;
 }
 void RVModel::makeCube(float width, float height, float length) {
