@@ -270,3 +270,16 @@ cd build\\Release
 ```
 
 O terceiro argumento permite alterar a textura: `racingcar_game.exe "car.glb" "script.luau" "pavimento.webp"`. Para compilar offline com libwebp já baixada, configure `-DWEBP_SOURCE_DIR=C:/src/libwebp`. Se a imagem não existir ou for inválida, o jogo usa o chão verde original.
+
+
+### Personagem a pé e entrada no carro
+
+O jogo inicia no modo **a pé**. O componente `graphics/rv_player.hpp/.cpp` controla um personagem sobre o terreno plano com WASD e orientação relativa à câmera. Por padrão desenha um personagem geométrico simples. Opcionalmente, carregue um GLB/OBJ/glTF/IQM de personagem como **quarto argumento** (após carro, script e textura):
+
+```powershell
+.\\racingcar_game "..\\..\\assets\\car retro.glb" "..\\..\\scripts\\racing_game.luau" "..\\..\\assets\\pavimento.webp" "..\\..\\assets\\personagem.glb"
+```
+
+Um **ghost azul** marca a porta do motorista. Aproxime-se (até 1,7 m) e pressione **ESPAÇO** para entrar. Dentro do carro, WASD controla a direção/aceleração, ESPAÇO freia e **F** sai. Fora do carro, a simulação continua com freio aplicado. A câmera acompanha o personagem a pé e o veículo quando embarcado, preservando órbita e zoom.
+
+O ponto da porta está em coordenadas locais do carro: `doorLocal{-1.05f, 0.0f, 0.35f}` em `graphics/main.cpp`; ajuste-o ao GLB utilizado. O componente atual usa movimento cinemático sobre Y=0, sem colisões de cápsula, animação esquelética ou detecção de paredes. O modelo opcional é estático (sem playback de animação). 
