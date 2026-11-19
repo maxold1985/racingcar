@@ -249,6 +249,33 @@ int rv_vehicle_step(RVVehicle* v, float dt, RVRaycastFn raycast, void* user) {
         s->spin_radians+=s->longitudinal_speed*dt/d->radius;
     }
 
+    // Arcade stability assist: damp sideways sliding and excess yaw only
+    // while wheels are grounded. This preserves tire forces and avoids
+    // changing the orientation directly (which causes visible snapping).
+    int contacts=0;
+    for(int i=0;i<v->count;++i) if(v->wheels[i].state.grounded) ++contacts;
+    if(contacts>=2) {
+        const RVVec3 horizontal_forward=norm(v3(chassis_forward.x,0,chassis_forward.z));
+        const RVVec3 horizontal_right=v3(horizontal_forward.z,0,-horizontal_forward.x);
+        const float forward_speed=dot(body->velocity,horizontal_forward);
+        const float lateral_speed=dot(body->velocity,horizontal_right);
+        // Countersteer/slip recovery is force-limited to available traction.
+        const float grip_fraction=(float)contacts/(float)v->count;
+        const float slip_accel=clampf(-lateral_speed*3.5f,
+                                      -8.0f*grip_fraction,8.0f*grip_fraction);
+        net += horizontal_right*(slip_accel*v->cfg.mass);
+        // Yaw-rate target from bicycle kinematics, with steering reduced at
+        // speed. Damping applies a torque, not an instantaneous yaw reset.
+        const float speed_abs=fabsf(forward_speed);
+        const float steer_factor=1.0f/(1.0f+speed_abs*0.055f);
+        const float target_yaw=forward_speed*
+            tanf(v->steer*v->cfg.max_steer_radians*steer_factor)/2.6f;
+        const float yaw_error=body->angular_velocity.y-target_yaw;
+        const float yaw_torque=clampf(-yaw_error*6500.0f,
+                                      -14000.0f,14000.0f);
+        torque.y+=yaw_torque*grip_fraction;
+    }
+
     /* Semi-implicit Euler translation and quaternion orientation integration. */
     RVVec3 acceleration=net / v->cfg.mass;
     body->velocity += acceleration * dt;
