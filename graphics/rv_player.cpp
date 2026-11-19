@@ -40,7 +40,8 @@ void RVPlayer::draw() const {
     const Vector3 center=Vector3Add(position_,Vector3{0,0.9f,0});
     if (model_.loaded()) {
         const Quaternion q=QuaternionFromAxisAngle(Vector3{0,1,0},facing_);
-        model_.draw(center,q,1.0f,WHITE);
+        // RVModel normalizes the longest dimension to 3.5 m; 0.5 gives ~1.75 m.
+        model_.draw(center,q,0.5f,WHITE);
     } else {
         // Visible placeholder until the user supplies a character GLB.
         DrawCylinder(Vector3Add(position_,Vector3{0,0.85f,0}),0.24f,0.24f,1.25f,12,BLUE);
