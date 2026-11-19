@@ -1,4 +1,5 @@
 #include "rv_model.hpp"
+#include "webp_texture.hpp"
 #include "rv_luau.h"
 #include "rv_physics.h"
 #include "raylib.h"
@@ -109,7 +110,7 @@ int main(int argc, char** argv) {
     Texture2D pavement{};
     bool pavementLoaded=false;
     if (FileExists(pavementPath)) {
-        pavement=LoadTexture(pavementPath);
+        pavement=LoadWebPTexture(pavementPath);
         pavementLoaded=IsTextureValid(pavement);
         if (pavementLoaded) {
             SetTextureFilter(pavement,TEXTURE_FILTER_BILINEAR);
