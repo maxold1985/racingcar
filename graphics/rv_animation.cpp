@@ -5,27 +5,38 @@
 #include <cmath>
 #include <cstdio>
 #include <limits>
+#include <unordered_set>
+#include <utility>
 
 namespace {
-constexpr unsigned int importFlags =
+constexpr unsigned importFlags =
     aiProcess_Triangulate | aiProcess_JoinIdenticalVertices |
     aiProcess_LimitBoneWeights | aiProcess_GenSmoothNormals;
+
+using Pose = std::unordered_map<std::string, aiMatrix4x4>;
+using Channels = std::unordered_map<std::string, const aiNodeAnim*>;
+
 std::string boneKey(std::string name) {
-    // Mixamo exports may use "mixamorig:Hips" or "Armature|mixamorig:Hips".
-    const auto separator=name.find_last_of(":|");
-    if(separator!=std::string::npos) name=name.substr(separator+1);
-    return name;
+    // Preserve Assimp's auxiliary FBX nodes; strip only Mixamo namespaces.
+    const auto pos=name.find_last_of(":|");
+    return pos==std::string::npos?name:name.substr(pos+1);
 }
-void findMeshNodes(const aiNode* node,const aiMatrix4x4& parent,
-                   std::unordered_map<unsigned,aiMatrix4x4>& transforms) {
-    const aiMatrix4x4 global=parent*node->mTransformation;
-    for(unsigned i=0;i<node->mNumMeshes;++i) transforms[node->mMeshes[i]]=global;
-    for(unsigned i=0;i<node->mNumChildren;++i)
-        findMeshNodes(node->mChildren[i],global,transforms);
+bool finite(const aiVector3D& v) {
+    return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z);
 }
-aiVector3D interpolatePosition(const aiNodeAnim* c,double t,const aiVector3D& fallback) {
-    if (!c || !c->mNumPositionKeys) return fallback;
-    if (c->mNumPositionKeys==1 || t<=c->mPositionKeys[0].mTime) return c->mPositionKeys[0].mValue;
+aiVector3D normalized(aiVector3D v) {
+    const float length=v.Length();
+    return length>1e-7f && std::isfinite(length)?v/length:aiVector3D(0,1,0);
+}
+aiVector3D direction(const aiMatrix4x4& m, const aiVector3D& v) {
+    return aiVector3D(m.a1*v.x+m.a2*v.y+m.a3*v.z,
+                      m.b1*v.x+m.b2*v.y+m.b3*v.z,
+                      m.c1*v.x+m.c2*v.y+m.c3*v.z);
+}
+aiVector3D samplePosition(const aiNodeAnim* c,double t,const aiVector3D& base) {
+    if(!c || !c->mNumPositionKeys) return base;
+    if(c->mNumPositionKeys==1 || t<=c->mPositionKeys[0].mTime)
+        return c->mPositionKeys[0].mValue;
     for(unsigned i=0;i+1<c->mNumPositionKeys;++i) {
         const auto& a=c->mPositionKeys[i];const auto& b=c->mPositionKeys[i+1];
         if(t<=b.mTime) {
@@ -35,9 +46,10 @@ aiVector3D interpolatePosition(const aiNodeAnim* c,double t,const aiVector3D& fa
     }
     return c->mPositionKeys[c->mNumPositionKeys-1].mValue;
 }
-aiQuaternion interpolateRotation(const aiNodeAnim* c,double t,const aiQuaternion& fallback) {
-    if(!c || !c->mNumRotationKeys) return fallback;
-    if(c->mNumRotationKeys==1 || t<=c->mRotationKeys[0].mTime) return c->mRotationKeys[0].mValue;
+aiQuaternion sampleRotation(const aiNodeAnim* c,double t,const aiQuaternion& base) {
+    if(!c || !c->mNumRotationKeys) return base;
+    if(c->mNumRotationKeys==1 || t<=c->mRotationKeys[0].mTime)
+        return c->mRotationKeys[0].mValue;
     for(unsigned i=0;i+1<c->mNumRotationKeys;++i) {
         const auto& a=c->mRotationKeys[i];const auto& b=c->mRotationKeys[i+1];
         if(t<=b.mTime) {
@@ -49,9 +61,10 @@ aiQuaternion interpolateRotation(const aiNodeAnim* c,double t,const aiQuaternion
     }
     return c->mRotationKeys[c->mNumRotationKeys-1].mValue;
 }
-aiVector3D interpolateScale(const aiNodeAnim* c,double t,const aiVector3D& fallback) {
-    if(!c || !c->mNumScalingKeys) return fallback;
-    if(c->mNumScalingKeys==1 || t<=c->mScalingKeys[0].mTime) return c->mScalingKeys[0].mValue;
+aiVector3D sampleScale(const aiNodeAnim* c,double t,const aiVector3D& base) {
+    if(!c || !c->mNumScalingKeys) return base;
+    if(c->mNumScalingKeys==1 || t<=c->mScalingKeys[0].mTime)
+        return c->mScalingKeys[0].mValue;
     for(unsigned i=0;i+1<c->mNumScalingKeys;++i) {
         const auto& a=c->mScalingKeys[i];const auto& b=c->mScalingKeys[i+1];
         if(t<=b.mTime) {
@@ -60,6 +73,39 @@ aiVector3D interpolateScale(const aiNodeAnim* c,double t,const aiVector3D& fallb
         }
     }
     return c->mScalingKeys[c->mNumScalingKeys-1].mValue;
+}
+void gatherPose(const aiNode* node, const aiMatrix4x4& parent,
+                const Channels& channels, double tick, Pose& out,
+                std::unordered_map<unsigned,aiMatrix4x4>* meshNodes=nullptr) {
+    aiMatrix4x4 local=node->mTransformation;
+    auto channel=channels.find(node->mName.C_Str());
+    if(channel!=channels.end()) {
+        aiVector3D scale, position;
+        aiQuaternion rotation;
+        local.Decompose(scale,rotation,position);
+        const aiNodeAnim* c=channel->second;
+        const aiVector3D p=samplePosition(c,tick,position);
+        const aiQuaternion q=sampleRotation(c,tick,rotation);
+        const aiVector3D s=sampleScale(c,tick,scale);
+        local=aiMatrix4x4(s.x,0,0,0, 0,s.y,0,0, 0,0,s.z,0, 0,0,0,1);
+        local=aiMatrix4x4(q.GetMatrix())*local;
+        local.a4=p.x;local.b4=p.y;local.c4=p.z;
+    }
+    const aiMatrix4x4 world=parent*local;
+    // Auxiliary FBX nodes retain unique keys (e.g. Hips_$AssimpFbx$_Rotation).
+    out[boneKey(node->mName.C_Str())]=world;
+    if(meshNodes) {
+        for(unsigned i=0;i<node->mNumMeshes;++i)
+            (*meshNodes)[node->mMeshes[i]]=world;
+    }
+    for(unsigned i=0;i<node->mNumChildren;++i)
+        gatherPose(node->mChildren[i],world,channels,tick,out,meshNodes);
+}
+Channels getChannels(const aiAnimation* a) {
+    Channels channels;
+    if(a) for(unsigned i=0;i<a->mNumChannels;++i)
+        channels[a->mChannels[i]->mNodeName.C_Str()]=a->mChannels[i];
+    return channels;
 }
 }
 
@@ -74,19 +120,21 @@ bool RVAnimation::loadCharacter(const char* path) {
         unload();
         return false;
     }
-    const float extreme=std::numeric_limits<float>::max();
-    aiVector3D low(extreme,extreme,extreme);
-    aiVector3D high(-extreme,-extreme,-extreme);
     std::unordered_map<unsigned,aiMatrix4x4> meshNodes;
-    findMeshNodes(scene_->mRootNode,aiMatrix4x4(),meshNodes);
+    gatherPose(scene_->mRootNode,aiMatrix4x4(),Channels{},0.0,targetBind_,&meshNodes);
+    const float extreme=std::numeric_limits<float>::max();
+    aiVector3D low(extreme,extreme,extreme),high(-extreme,-extreme,-extreme);
+    unsigned totalBones=0, skippedBones=0;
     for(unsigned mi=0;mi<scene_->mNumMeshes;++mi) {
         const aiMesh* src=scene_->mMeshes[mi];
         if(!src->mNumVertices || !src->mNumFaces) continue;
+        if(src->mNumVertices>65535) {
+            std::fprintf(stderr,"FBX part %u exceeds 65535 vertices; skipped\n",mi);
+            continue;
+        }
         Part part;
-        part.bindVertices.assign(src->mVertices,src->mVertices+src->mNumVertices);
-        // Meshes are in their node-local bind space; preserve that node transform.
-        const auto nodeIt=meshNodes.find(mi);
-        const aiMatrix4x4 meshBind=nodeIt==meshNodes.end()?aiMatrix4x4():nodeIt->second;
+        const auto node=meshNodes.find(mi);
+        const aiMatrix4x4 meshBind=node==meshNodes.end()?aiMatrix4x4():node->second;
         Mesh mesh{};
         mesh.vertexCount=int(src->mNumVertices);
         mesh.triangleCount=int(src->mNumFaces);
@@ -94,72 +142,118 @@ bool RVAnimation::loadCharacter(const char* path) {
         mesh.normals=(float*)MemAlloc(size_t(mesh.vertexCount)*3*sizeof(float));
         mesh.texcoords=(float*)MemAlloc(size_t(mesh.vertexCount)*2*sizeof(float));
         mesh.indices=(unsigned short*)MemAlloc(size_t(mesh.triangleCount)*3*sizeof(unsigned short));
-        if(src->mNumVertices>65535) {
-            std::fprintf(stderr,"FBX mesh exceeds raylib 16-bit index limit\n");
-            MemFree(mesh.vertices);MemFree(mesh.normals);MemFree(mesh.texcoords);MemFree(mesh.indices);
-            continue;
-        }
+        part.bindVertices.reserve(src->mNumVertices);
+        part.bindNormals.reserve(src->mNumVertices);
         for(unsigned i=0;i<src->mNumVertices;++i) {
-            const auto v=meshBind*src->mVertices[i];
+            // Bake the mesh-node transformation ONCE, for both static and
+            // animated vertices. Never mix node-local and model-space inputs.
+            const aiVector3D v=meshBind*src->mVertices[i];
+            const aiVector3D rawNormal=src->HasNormals()?
+                src->mNormals[i]:aiVector3D(0,1,0);
+            const aiVector3D n=normalized(direction(meshBind,rawNormal));
+            part.bindVertices.push_back(v);
+            part.bindNormals.push_back(n);
             low.x=std::min(low.x,v.x);low.y=std::min(low.y,v.y);low.z=std::min(low.z,v.z);
             high.x=std::max(high.x,v.x);high.y=std::max(high.y,v.y);high.z=std::max(high.z,v.z);
             mesh.vertices[i*3]=v.x;mesh.vertices[i*3+1]=v.y;mesh.vertices[i*3+2]=v.z;
-            const auto n=src->HasNormals()?src->mNormals[i]:aiVector3D(0,1,0);
             mesh.normals[i*3]=n.x;mesh.normals[i*3+1]=n.y;mesh.normals[i*3+2]=n.z;
-            const auto uv=src->HasTextureCoords(0)?src->mTextureCoords[0][i]:aiVector3D();
+            const aiVector3D uv=src->HasTextureCoords(0)?
+                src->mTextureCoords[0][i]:aiVector3D();
             mesh.texcoords[i*2]=uv.x;mesh.texcoords[i*2+1]=1.0f-uv.y;
         }
         for(unsigned i=0;i<src->mNumFaces;++i) {
             const aiFace& face=src->mFaces[i];
-            if(face.mNumIndices!=3) { mesh.indices[i*3]=mesh.indices[i*3+1]=mesh.indices[i*3+2]=0;continue; }
-            for(int j=0;j<3;++j) mesh.indices[i*3+j]=(unsigned short)face.mIndices[j];
+            if(face.mNumIndices!=3) {
+                for(unsigned j=0;j<3;++j) mesh.indices[i*3+j]=0;
+            } else for(unsigned j=0;j<3;++j)
+                mesh.indices[i*3+j]=(unsigned short)face.mIndices[j];
         }
         for(unsigned b=0;b<src->mNumBones;++b) {
-            const aiBone* sb=src->mBones[b];
+            const aiBone* input=src->mBones[b];
+            ++totalBones;
+            const std::string name=boneKey(input->mName.C_Str());
+            auto found=targetBind_.find(name);
+            if(found==targetBind_.end() ||
+               std::abs(found->second.Determinant())<1e-12f) {
+                ++skippedBones;
+                continue;
+            }
             Bone bone;
-            bone.name=boneKey(sb->mName.C_Str());
-            // Assimp offset already maps mesh-local bind vertices into bone space.
-            bone.offset=sb->mOffsetMatrix;
-            for(unsigned w=0;w<sb->mNumWeights;++w)
-                bone.weights.push_back({sb->mWeights[w].mVertexId,sb->mWeights[w].mWeight});
+            bone.name=name;
+            bone.targetBind=found->second;
+            bone.targetBindInverse=found->second;
+            bone.targetBindInverse.Inverse();
+            for(unsigned w=0;w<input->mNumWeights;++w) {
+                const auto& weight=input->mWeights[w];
+                if(weight.mVertexId<src->mNumVertices && weight.mWeight>0)
+                    bone.weights.push_back({weight.mVertexId,weight.mWeight});
+            }
             part.bones.push_back(std::move(bone));
         }
+        part.skinnedVertices.resize(part.bindVertices.size());
+        part.skinnedNormals.resize(part.bindVertices.size());
+        part.weightSums.resize(part.bindVertices.size());
         UploadMesh(&mesh,true);
         part.model=LoadModelFromMesh(mesh);
         parts_.push_back(std::move(part));
     }
     if(parts_.empty()) { unload();return false; }
     center_=aiVector3D((low.x+high.x)*0.5f,low.y,(low.z+high.z)*0.5f);
-    const float h=high.y-low.y;
-    scale_=(h>0.001f)?1.75f/h:1.0f;
+    const float height=high.y-low.y;
+    scale_=(height>0.001f && std::isfinite(height))?1.75f/height:1.0f;
     modelValid_=true;
     if(scene_->HasAnimations()) {
         Clip embedded;
+        embedded.source=scene_;
         embedded.animation=scene_->mAnimations[0];
+        embedded.channels=getChannels(embedded.animation);
+        embedded.sourceBind=targetBind_;
         embedded.duration=embedded.animation->mDuration;
         embedded.ticksPerSecond=embedded.animation->mTicksPerSecond>0?
             embedded.animation->mTicksPerSecond:25.0;
-        clips_["Default"]=std::move(embedded);
+        clips_.emplace("Default",std::move(embedded));
     }
-    std::fprintf(stderr,"Animated character: %u meshes, %zu parts, scale %.5f\n",
-                 scene_->mNumMeshes,parts_.size(),scale_);
+    std::fprintf(stderr,
+        "Animated character: %u meshes, %zu skinned parts, %u bones (%u unmatched), scale %.5f\n",
+        scene_->mNumMeshes,parts_.size(),totalBones,skippedBones,scale_);
     return true;
 }
 bool RVAnimation::loadClip(const std::string& name,const char* path) {
     if(!modelValid_ || !path || !path[0]) return false;
     Clip clip;
     clip.importer=std::make_unique<Assimp::Importer>();
-    const aiScene* imported=clip.importer->ReadFile(path,importFlags);
-    if(!imported || !imported->HasAnimations()) {
+    clip.source=clip.importer->ReadFile(path,importFlags);
+    if(!clip.source || !clip.source->mRootNode || !clip.source->HasAnimations()) {
         std::fprintf(stderr,"FBX animation import failed: %s (%s)\n",
                      path,clip.importer->GetErrorString());
         return false;
     }
-    clip.animation=imported->mAnimations[0];
+    clip.animation=clip.source->mAnimations[0];
+    if(!clip.animation || clip.animation->mNumChannels==0) {
+        std::fprintf(stderr,"Animation has no bone channels: %s\n",path);
+        return false;
+    }
     clip.duration=clip.animation->mDuration;
-    clip.ticksPerSecond=clip.animation->mTicksPerSecond>0?clip.animation->mTicksPerSecond:25.0;
+    clip.ticksPerSecond=clip.animation->mTicksPerSecond>0?
+        clip.animation->mTicksPerSecond:25.0;
+    clip.channels=getChannels(clip.animation);
+    gatherPose(clip.source->mRootNode,aiMatrix4x4(),Channels{},0.0,clip.sourceBind);
+    std::unordered_set<std::string> skeleton;
+    for(const auto& part:parts_)
+        for(const Bone& bone:part.bones) skeleton.insert(bone.name);
+    unsigned matched=0;
+    for(const auto& bone:skeleton)
+        if(clip.sourceBind.find(bone)!=clip.sourceBind.end()) ++matched;
+    // Reject incompatible rigs instead of warping every vertex unpredictably.
+    if(!skeleton.empty() && matched*2<skeleton.size()) {
+        std::fprintf(stderr,
+            "Animation %s rejected: compatible bone names %u/%zu (needs >=50%%)\n",
+            path,matched,skeleton.size());
+        return false;
+    }
+    std::fprintf(stderr,"Animation %s loaded: %s (matching bones %u/%zu)\n",
+                 name.c_str(),path,matched,skeleton.size());
     clips_[name]=std::move(clip);
-    std::fprintf(stderr,"Animation %s loaded: %s\n",name.c_str(),path);
     return true;
 }
 bool RVAnimation::play(const std::string& name,bool loop) {
@@ -168,68 +262,72 @@ bool RVAnimation::play(const std::string& name,bool loop) {
     active_=name;loop_=loop;time_=0.0;finished_=false;
     return true;
 }
-void RVAnimation::evaluate(const aiNode* node,const aiMatrix4x4& parent,
-    const aiAnimation* animation,double tick,
-    std::unordered_map<std::string,aiMatrix4x4>& transforms) const {
-    aiMatrix4x4 local=node->mTransformation;
-    if(animation) {
-        for(unsigned i=0;i<animation->mNumChannels;++i) {
-            const aiNodeAnim* c=animation->mChannels[i];
-            if(boneKey(node->mName.C_Str())!=boneKey(c->mNodeName.C_Str())) continue;
-            aiVector3D baseScale,basePosition;aiQuaternion baseRotation;
-            node->mTransformation.Decompose(baseScale,baseRotation,basePosition);
-            const aiVector3D p=interpolatePosition(c,tick,basePosition);
-            const aiQuaternion r=interpolateRotation(c,tick,baseRotation);
-            const aiVector3D sc=interpolateScale(c,tick,baseScale);
-            local=aiMatrix4x4(sc.x,0,0,0, 0,sc.y,0,0, 0,0,sc.z,0, 0,0,0,1);
-            local=aiMatrix4x4(r.GetMatrix())*local;
-            local.a4=p.x;local.b4=p.y;local.c4=p.z;
-            break;
-        }
-    }
-    const aiMatrix4x4 global=parent*local;
-    transforms[boneKey(node->mName.C_Str())]=global;
-    for(unsigned i=0;i<node->mNumChildren;++i)
-        evaluate(node->mChildren[i],global,animation,tick,transforms);
-}
 void RVAnimation::update(float dt) {
     if(!modelValid_ || active_.empty()) return;
-    auto it=clips_.find(active_);
+    const auto it=clips_.find(active_);
     if(it==clips_.end()) return;
     const Clip& clip=it->second;
     time_+=std::max(0.0f,dt)*clip.ticksPerSecond;
     double tick=time_;
     if(clip.duration>0) {
         if(loop_) tick=std::fmod(tick,clip.duration);
-        else if(tick>=clip.duration) { tick=clip.duration;finished_=true; }
+        else if(tick>=clip.duration) {tick=clip.duration;finished_=true;}
     }
-    std::unordered_map<std::string,aiMatrix4x4> transforms;
-    evaluate(scene_->mRootNode,aiMatrix4x4(),clip.animation,tick,transforms);
-    // Transform from scene-global space back into the model root space.
-    // Assimp bone offsets already encode the mesh bind pose.
-    aiMatrix4x4 rootInverse=scene_->mRootNode->mTransformation;
-    rootInverse.Inverse();
+    Pose animated;
+    gatherPose(clip.source->mRootNode,aiMatrix4x4(),clip.channels,tick,animated);
+    bool invalid=false;
     for(Part& part:parts_) {
         if(part.bones.empty()) continue;
-        Mesh& mesh=part.model.meshes[0];
-        std::vector<aiVector3D> result(part.bindVertices.size(),aiVector3D());
-        std::vector<float> total(part.bindVertices.size(),0.0f);
+        std::fill(part.skinnedVertices.begin(),part.skinnedVertices.end(),aiVector3D());
+        std::fill(part.skinnedNormals.begin(),part.skinnedNormals.end(),aiVector3D());
+        std::fill(part.weightSums.begin(),part.weightSums.end(),0.0f);
         for(const Bone& bone:part.bones) {
-            const auto found=transforms.find(bone.name);
-            if(found==transforms.end()) continue;
-            const aiMatrix4x4 transform=rootInverse*found->second*bone.offset;
+            aiMatrix4x4 skin; // identity for missing bones
+            const auto rest=clip.sourceBind.find(bone.name);
+            const auto current=animated.find(bone.name);
+            if(rest!=clip.sourceBind.end() && current!=animated.end() &&
+               std::abs(rest->second.Determinant())>1e-12f) {
+                aiMatrix4x4 sourceInverse=rest->second;
+                sourceInverse.Inverse();
+                // Retarget each joint from its SOURCE rest pose to the
+                // CHARACTER rest pose. At rest this product is exactly I.
+                //
+                // T = B_target * inv(B_source) * A_source(t) * inv(B_target)
+                //
+                // Use root/model-space bind vertices for every mesh.
+                skin=bone.targetBind*sourceInverse*current->second*
+                     bone.targetBindInverse;
+            }
             for(const Weight& w:bone.weights) {
-                if(w.vertex>=result.size()) continue;
-                result[w.vertex]+=(transform*part.bindVertices[w.vertex])*w.weight;
-                total[w.vertex]+=w.weight;
+                if(w.vertex>=part.bindVertices.size()) continue;
+                part.skinnedVertices[w.vertex]+=
+                    (skin*part.bindVertices[w.vertex])*w.weight;
+                part.skinnedNormals[w.vertex]+=
+                    direction(skin,part.bindNormals[w.vertex])*w.weight;
+                part.weightSums[w.vertex]+=w.weight;
             }
         }
-        for(size_t i=0;i<result.size();++i) {
-            const aiVector3D v=total[i]>0.0001f?
-                result[i]/total[i]:part.bindVertices[i];
+        Mesh& mesh=part.model.meshes[0];
+        for(size_t i=0;i<part.bindVertices.size();++i) {
+            aiVector3D v=part.bindVertices[i],n=part.bindNormals[i];
+            if(part.weightSums[i]>1e-6f) {
+                v=part.skinnedVertices[i]/part.weightSums[i];
+                n=normalized(part.skinnedNormals[i]);
+            }
+            if(!finite(v) || !finite(n)) {
+                invalid=true;
+                v=part.bindVertices[i];
+                n=part.bindNormals[i];
+            }
             mesh.vertices[i*3]=v.x;mesh.vertices[i*3+1]=v.y;mesh.vertices[i*3+2]=v.z;
+            mesh.normals[i*3]=n.x;mesh.normals[i*3+1]=n.y;mesh.normals[i*3+2]=n.z;
         }
-        UpdateMeshBuffer(mesh,0,mesh.vertices,int(result.size()*3*sizeof(float)),0);
+        UpdateMeshBuffer(mesh,0,mesh.vertices,int(part.bindVertices.size()*3*sizeof(float)),0);
+        UpdateMeshBuffer(mesh,2,mesh.normals,int(part.bindNormals.size()*3*sizeof(float)),0);
+    }
+    if(invalid && !warnedInvalidPose_) {
+        std::fprintf(stderr,"Animation produced non-finite coordinates; affected vertices reset to bind pose\n");
+        warnedInvalidPose_=true;
     }
 }
 void RVAnimation::draw(Vector3 position,float yaw) const {
@@ -244,6 +342,7 @@ void RVAnimation::draw(Vector3 position,float yaw) const {
 }
 void RVAnimation::unload() {
     for(Part& part:parts_) UnloadModel(part.model);
-    parts_.clear();clips_.clear();active_.clear();scene_=nullptr;
-    character_.reset();modelValid_=false;time_=0;finished_=false;
+    parts_.clear();targetBind_.clear();clips_.clear();active_.clear();
+    scene_=nullptr;character_.reset();modelValid_=false;
+    time_=0;finished_=false;warnedInvalidPose_=false;
 }
