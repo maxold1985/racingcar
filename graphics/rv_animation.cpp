@@ -334,6 +334,36 @@ void RVAnimation::update(float dt) {
     }
     Pose animated;
     gatherPose(clip.source->mRootNode,aiMatrix4x4(),clip.channels,tick,animated);
+    // One-time diagnostics: detect FBX channel translations/scales which
+    // stretch bones away from their imported bind positions.
+    static bool reportedPose=false;
+    if(!reportedPose && clip.sameSkeleton) {
+        reportedPose=true;
+        struct Deviation { std::string name; float distance; float ratio; };
+        std::vector<Deviation> deviations;
+        for(const auto& [name, rest]:targetBind_) {
+            auto it=animated.find(name);
+            if(it==animated.end()) continue;
+            const aiMatrix4x4& now=it->second;
+            const aiVector3D a(rest.a4,rest.b4,rest.c4);
+            const aiVector3D b(now.a4,now.b4,now.c4);
+            const float dist=(b-a).Length();
+            const float restScale=std::max(1e-6f,
+                aiVector3D(rest.a1,rest.b1,rest.c1).Length());
+            const float nowScale=aiVector3D(now.a1,now.b1,now.c1).Length();
+            deviations.push_back({name,dist,nowScale/restScale});
+        }
+        std::sort(deviations.begin(),deviations.end(),
+            [](const Deviation& a,const Deviation& b) {
+                return a.distance>b.distance;
+            });
+        std::fprintf(stderr,"[FBX DIAG] tick=%.3f nodes=%zu\\n",
+                     tick,deviations.size());
+        for(size_t i=0;i<std::min(size_t(12),deviations.size());++i)
+            std::fprintf(stderr,"[FBX DIAG] %s translation=%.3f scaleRatio=%.3f\\n",
+                deviations[i].name.c_str(),deviations[i].distance,
+                deviations[i].ratio);
+    }
     bool invalid=false;
     for(Part& part:parts_) {
         if(part.bones.empty()) continue;
