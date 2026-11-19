@@ -2,8 +2,8 @@
 -- Coordinates: +X right, +Y up, +Z forward; metres, seconds, radians.
 local car = Physics.newVehicle({
     mass = 1200,
-    inertia = {x = 2500, y = 2100, z = 600},
-    position = {x = 0, y = 0.98, z = 0},
+    inertia = vector.create(2500, 2100, 600),
+    position = vector.create(0, 0.98, 0),
     engineForce = 5200,
     brakeForce = 9500,
     maxSteer = math.rad(24),
@@ -13,7 +13,7 @@ local car = Physics.newVehicle({
 
 local function wheel(x, z, front)
     return Physics.addWheel(car, {
-        mount = {x = x, y = -0.20, z = z},
+        mount = vector.create(x, -0.20, z),
         radius = 0.34,
         restLength = 0.55,
         minLength = 0.15,
@@ -52,10 +52,12 @@ function fixedUpdate(dt)
     if ticks % 120 == 0 then
         local state = Physics.getState(car)
         local fl = Physics.getWheel(car, FL)
+        -- Native Luau vectors support arithmetic; result is also a vector.
+        local predictedPosition = state.position + state.velocity * dt
         print(string.format(
             "t=%.0fs | speed=%.1f km/h | x=%.2f z=%.2f y=%.2f | FL=%s, force=%.0fN",
-            time, state.speedKmh, state.position.x, state.position.z,
-            state.position.y, tostring(fl.grounded), fl.force
+            time, state.speedKmh, predictedPosition.x, predictedPosition.z,
+            predictedPosition.y, tostring(fl.grounded), fl.force
         ))
     end
 end
