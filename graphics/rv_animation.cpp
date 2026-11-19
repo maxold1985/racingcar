@@ -208,6 +208,13 @@ bool RVAnimation::loadCharacter(const char* path) {
         embedded.animation=scene_->mAnimations[0];
         embedded.channels=getChannels(embedded.animation);
         embedded.sourceBind=targetBind_;
+        for(const auto& kv:embedded.sourceBind) {
+            if(std::abs(kv.second.Determinant())>1e-12f) {
+                aiMatrix4x4 inverse=kv.second;
+                inverse.Inverse();
+                embedded.sourceBindInverse[kv.first]=inverse;
+            }
+        }
         embedded.duration=embedded.animation->mDuration;
         embedded.ticksPerSecond=embedded.animation->mTicksPerSecond>0?
             embedded.animation->mTicksPerSecond:25.0;
@@ -238,16 +245,23 @@ bool RVAnimation::loadClip(const std::string& name,const char* path) {
         clip.animation->mTicksPerSecond:25.0;
     clip.channels=getChannels(clip.animation);
     gatherPose(clip.source->mRootNode,aiMatrix4x4(),Channels{},0.0,clip.sourceBind);
+    for(const auto& kv:clip.sourceBind) {
+        if(std::abs(kv.second.Determinant())>1e-12f) {
+            aiMatrix4x4 inverse=kv.second;
+            inverse.Inverse();
+            clip.sourceBindInverse[kv.first]=inverse;
+        }
+    }
     std::unordered_set<std::string> skeleton;
     for(const auto& part:parts_)
         for(const Bone& bone:part.bones) skeleton.insert(bone.name);
     unsigned matched=0;
     for(const auto& bone:skeleton)
-        if(clip.sourceBind.find(bone)!=clip.sourceBind.end()) ++matched;
+        if(clip.sourceBindInverse.find(bone)!=clip.sourceBindInverse.end()) ++matched;
     // Reject incompatible rigs instead of warping every vertex unpredictably.
-    if(!skeleton.empty() && matched*2<skeleton.size()) {
+    if(!skeleton.empty() && matched*5<skeleton.size()*4) {
         std::fprintf(stderr,
-            "Animation %s rejected: compatible bone names %u/%zu (needs >=50%%)\n",
+            "Animation %s rejected: compatible bone names %u/%zu (needs >=80%%)\n",
             path,matched,skeleton.size());
         return false;
     }
@@ -283,19 +297,16 @@ void RVAnimation::update(float dt) {
         std::fill(part.weightSums.begin(),part.weightSums.end(),0.0f);
         for(const Bone& bone:part.bones) {
             aiMatrix4x4 skin; // identity for missing bones
-            const auto rest=clip.sourceBind.find(bone.name);
+            const auto inverse=clip.sourceBindInverse.find(bone.name);
             const auto current=animated.find(bone.name);
-            if(rest!=clip.sourceBind.end() && current!=animated.end() &&
-               std::abs(rest->second.Determinant())>1e-12f) {
-                aiMatrix4x4 sourceInverse=rest->second;
-                sourceInverse.Inverse();
+            if(inverse!=clip.sourceBindInverse.end() && current!=animated.end()) {
                 // Retarget each joint from its SOURCE rest pose to the
                 // CHARACTER rest pose. At rest this product is exactly I.
                 //
                 // T = B_target * inv(B_source) * A_source(t) * inv(B_target)
                 //
                 // Use root/model-space bind vertices for every mesh.
-                skin=bone.targetBind*sourceInverse*current->second*
+                skin=bone.targetBind*inverse->second*current->second*
                      bone.targetBindInverse;
             }
             for(const Weight& w:bone.weights) {
