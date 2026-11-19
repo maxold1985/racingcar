@@ -262,10 +262,34 @@ int main(int argc, char** argv) {
                             Vector3{toRay(state.position).x+5.0f+column*1.8f,0.425f,toRay(state.position).z-2.0f+row*2.0f}
                         });
                     }
-                    // Eight one-crate slots. Stored crates retain their world identity.
-                    std::array<int,8> inventory{};
-                    inventory.fill(-1);
-                    int selectedSlot=0;
+                    // Spatial inventory: 4 columns x 2 rows (8 cells).
+                    // Item footprints: small 1x1, medium 2x1, large 2x2.
+                    struct InventoryItem {
+                        int crate=-1;
+                        int x=0,y=0,w=1,h=1;
+                        int quantity=1;
+                        std::array<int,3> crates{{-1,-1,-1}};
+                    };
+                    std::vector<InventoryItem> inventory;
+                    int selectedItem=-1;
+                    bool rotateOnPickup=false;
+                    bool inventoryOpen=true;
+                    auto crateDimensions=[](int index) {
+                        // Three item categories, determined by spawned crate ID.
+                        if(index%6==0) return std::array<int,3>{2,2,1};
+                        if(index%3==0) return std::array<int,3>{2,1,2};
+                        return std::array<int,3>{1,1,3};
+                    };
+                    auto inventoryFits=[&](int x,int y,int w,int h,int ignore) {
+                        if(x<0 || y<0 || x+w>4 || y+h>2) return false;
+                        for(int i=0;i<static_cast<int>(inventory.size());++i) {
+                            if(i==ignore) continue;
+                            const InventoryItem& other=inventory[i];
+                            if(x<other.x+other.w && x+w>other.x &&
+                               y<other.y+other.h && y+h>other.y) return false;
+                        }
+                        return true;
+                    };
                     int grabbedBox=-1;
                     float grabDistance=5.0f;
                     Vector3 grabEnd{0,0,0};
@@ -387,30 +411,65 @@ int main(int argc, char** argv) {
                             }
                             if(grabbedBox>=0) grabDistance=nearest;
                         }
-                        // 1..8 select slots; Q stores the held crate; G drops it.
-                        for(int slot=0;slot<8;++slot) {
-                            if(IsKeyPressed(static_cast<KeyboardKey>(KEY_ONE+slot)))
-                                selectedSlot=slot;
+                        // TAB toggles the inventory panel; R rotates the selected
+                        // item, Q stores a ray-held crate, G drops one crate.
+                        if(IsKeyPressed(KEY_TAB)) inventoryOpen=!inventoryOpen;
+                        if(IsKeyPressed(KEY_R) && !player.insideCar) {
+                            if(inventoryOpen && selectedItem>=0 &&
+                               selectedItem<static_cast<int>(inventory.size())) {
+                                InventoryItem& item=inventory[selectedItem];
+                                if(inventoryFits(item.x,item.y,item.h,item.w,selectedItem))
+                                    std::swap(item.w,item.h);
+                            } else if(grabbedBox>=0) rotateOnPickup=!rotateOnPickup;
                         }
                         if(!player.insideCar && IsKeyPressed(KEY_Q) && grabbedBox>=0) {
-                            int freeSlot=-1;
-                            if(inventory[selectedSlot]<0) freeSlot=selectedSlot;
-                            else {
-                                for(int slot=0;slot<8;++slot)
-                                    if(inventory[slot]<0) {freeSlot=slot;break;}
+                            const auto dims=crateDimensions(grabbedBox);
+                            bool stored=false;
+                            // Stack identical footprint classes, up to capacity.
+                            for(int i=0;i<static_cast<int>(inventory.size());++i) {
+                                InventoryItem& item=inventory[i];
+                                const auto kind=crateDimensions(item.crate);
+                                if(kind==dims && item.quantity<dims[2]) {
+                                    item.crates[item.quantity++]=grabbedBox;
+                                    selectedItem=i;
+                                    stored=true;
+                                    break;
+                                }
                             }
-                            if(freeSlot>=0) {
-                                inventory[freeSlot]=grabbedBox;
+                            if(!stored) {
+                                int w=dims[0],h=dims[1];
+                                if(rotateOnPickup) std::swap(w,h);
+                                for(int y=0;y<2 && !stored;++y) {
+                                    for(int x=0;x<4 && !stored;++x) {
+                                        if(inventoryFits(x,y,w,h,-1)) {
+                                            InventoryItem item;
+                                            item.crate=grabbedBox;
+                                            item.crates[0]=grabbedBox;
+                                            item.x=x;item.y=y;item.w=w;item.h=h;
+                                            inventory.push_back(item);
+                                            selectedItem=static_cast<int>(inventory.size())-1;
+                                            stored=true;
+                                        }
+                                    }
+                                }
+                            }
+                            if(stored) {
                                 grabBoxes[grabbedBox].stored=true;
                                 grabBoxes[grabbedBox].velocity=Vector3{0,0,0};
-                                selectedSlot=freeSlot;
                                 grabbedBox=-1;
                             }
                         }
                         if(!player.insideCar && IsKeyPressed(KEY_G) &&
-                           inventory[selectedSlot]>=0) {
-                            const int index=inventory[selectedSlot];
-                            inventory[selectedSlot]=-1;
+                           selectedItem>=0 &&
+                           selectedItem<static_cast<int>(inventory.size())) {
+                            InventoryItem& item=inventory[selectedItem];
+                            const int index=item.crates[--item.quantity];
+                            item.crates[item.quantity]=-1;
+                            if(item.quantity==0) {
+                                inventory.erase(inventory.begin()+selectedItem);
+                                selectedItem=inventory.empty()?-1:
+                                    std::min(selectedItem,static_cast<int>(inventory.size())-1);
+                            }
                             GrabBox& box=grabBoxes[index];
                             box.stored=false;
                             const Vector3 forward=Vector3Normalize(Vector3{
@@ -633,28 +692,59 @@ int main(int argc, char** argv) {
                                  20,173,18,ctx.physics_steps>0?GREEN:RED);
                         DrawText(pavementLoaded ? "PAVEMENT: WEBP OK" : "PAVEMENT: NOT LOADED",20,198,18,pavementLoaded?GREEN:RED);
                         if (nearDoor) DrawText("E: ENTER CAR",GetScreenWidth()/2-110,GetScreenHeight()-85,24,GREEN);
-                        // Eight-slot inventory hotbar (one crate per slot).
-                        constexpr int slotSize=56,slotGap=7;
-                        const int barWidth=8*slotSize+7*slotGap;
-                        const int barX=(GetScreenWidth()-barWidth)/2;
-                        const int barY=GetScreenHeight()-75;
-                        int inventoryCount=0;
-                        for(int slot=0;slot<8;++slot) {
-                            const int x=barX+slot*(slotSize+slotGap);
-                            const bool occupied=inventory[slot]>=0;
-                            if(occupied) ++inventoryCount;
-                            DrawRectangle(x,barY,slotSize,slotSize,Fade(BLACK,0.78f));
-                            DrawRectangleLinesEx(Rectangle{float(x),float(barY),
-                                float(slotSize),float(slotSize)},slot==selectedSlot?3.0f:1.0f,
-                                slot==selectedSlot?YELLOW:GRAY);
-                            DrawText(TextFormat("%d",slot+1),x+5,barY+4,14,LIGHTGRAY);
-                            if(occupied) {
-                                DrawRectangle(x+17,barY+19,23,23,BROWN);
-                                DrawRectangleLines(x+17,barY+19,23,23,BEIGE);
+                        // Spatial inventory: 4x2 cells, item size, rotation and stacks.
+                        if(inventoryOpen) {
+                            constexpr int cell=62;
+                            const int left=GetScreenWidth()-4*cell-25;
+                            const int top=GetScreenHeight()-2*cell-115;
+                            DrawRectangle(left-12,top-46,4*cell+24,2*cell+94,
+                                          Fade(BLACK,0.86f));
+                            DrawText("INVENTORY 4x2",left,top-37,20,RAYWHITE);
+                            const Vector2 mouse=GetMousePosition();
+                            if(IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+                                selectedItem=-1;
+                                for(int i=static_cast<int>(inventory.size())-1;i>=0;--i) {
+                                    const InventoryItem& item=inventory[i];
+                                    const Rectangle rect{
+                                        float(left+item.x*cell),float(top+item.y*cell),
+                                        float(item.w*cell),float(item.h*cell)};
+                                    if(CheckCollisionPointRec(mouse,rect)) {
+                                        selectedItem=i;break;
+                                    }
+                                }
                             }
+                            for(int y=0;y<2;++y)
+                                for(int x=0;x<4;++x)
+                                    DrawRectangleLinesEx(Rectangle{
+                                        float(left+x*cell),float(top+y*cell),
+                                        float(cell),float(cell)},1.0f,GRAY);
+                            for(int i=0;i<static_cast<int>(inventory.size());++i) {
+                                const InventoryItem& item=inventory[i];
+                                const int x=left+item.x*cell,y=top+item.y*cell;
+                                const int w=item.w*cell,h=item.h*cell;
+                                DrawRectangle(x+3,y+3,w-6,h-6,
+                                              i==selectedItem?Color{125,90,50,255}:
+                                              Color{90,65,45,255});
+                                DrawRectangleLinesEx(Rectangle{
+                                    float(x+3),float(y+3),float(w-6),float(h-6)},
+                                    i==selectedItem?3.0f:1.0f,
+                                    i==selectedItem?YELLOW:BEIGE);
+                                DrawText("BOX",x+10,y+12,18,RAYWHITE);
+                                DrawText(TextFormat("x%d",item.quantity),
+                                         x+10,y+h-26,18,YELLOW);
+                            }
+                            int used=0,quantity=0;
+                            for(const InventoryItem& item:inventory) {
+                                used+=item.w*item.h;
+                                quantity+=item.quantity;
+                            }
+                            DrawText(TextFormat("%d/8 cells | %d boxes",used,quantity),
+                                     left,top+2*cell+7,16,RAYWHITE);
+                            DrawText("Click select | R rotate | Q store | G drop | TAB hide",
+                                     10,GetScreenHeight()-22,16,RAYWHITE);
+                        } else {
+                            DrawText("TAB: INVENTORY",10,GetScreenHeight()-24,16,RAYWHITE);
                         }
-                        DrawText(TextFormat("INVENTORY %d/8 | 1-8 select | Q store held box | G drop",inventoryCount),
-                                 barX,barY-23,15,RAYWHITE);
                         DrawFPS(GetScreenWidth()-100,20);
                         EndDrawing();
                     }
