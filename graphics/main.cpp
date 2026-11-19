@@ -320,6 +320,17 @@ int main(int argc, char** argv) {
                     constexpr float missionLimit=480.0f;
                     float missionTime=missionLimit;
                     int missionReward=0;
+                    // Persistent wallet: plain-text save next to the executable's working directory.
+                    // Only non-negative, bounded balances are accepted from disk.
+                    constexpr int maxWallet=100000000;
+                    int wallet=0;
+                    const char* walletSavePath="cargo_run_save.txt";
+                    {
+                        std::ifstream save(walletSavePath);
+                        long long balance=-1;
+                        if(save >> balance && balance>=0 && balance<=maxWallet)
+                            wallet=static_cast<int>(balance);
+                    }
                     const std::array<int,3> missionCrates{{1,2,4}};
                     const Vector3 deliveryZone{state.position.x+8.0f,0.05f,state.position.z+65.0f};
                     auto missionCargo=[&]() {
@@ -511,6 +522,12 @@ int main(int argc, char** argv) {
                            std::abs(state.speed_kmh)<5.0f) {
                             mission=Mission::Completed;
                             missionReward=450+static_cast<int>(missionTime*0.15f);
+                            wallet=std::min(maxWallet,wallet+missionReward);
+                            {
+                                std::ofstream save(walletSavePath,std::ios::trunc);
+                                if(save) save << wallet << '\\n';
+                                else std::fprintf(stderr,"Unable to save Cargo Run wallet\\n");
+                            }
                             removeMissionCargo();
                         }
                         // Right mouse button: cast a red ray and grab the nearest box.
@@ -906,7 +923,8 @@ int main(int argc, char** argv) {
                             std::hypot(pos.x-enemyPosition.x,pos.z-enemyPosition.z),
                             enemyWaypoint+1),20,224,18,enemyChasing?RED:SKYBLUE);
                         DrawRectangle(10,260,555,108,Fade(BLACK,0.78f));
-                         DrawText("CARGO RUN - CONTRACT 001",20,268,20,GOLD);
+                         DrawText(TextFormat("CARGO RUN - CONTRACT 001 | WALLET: $%d",wallet),
+                                  20,268,20,GOLD);
                          const char* missionLabel=
                              mission==Mission::Available?"N: ACCEPT DELIVERY CONTRACT":
                              mission==Mission::Pickup?"COLLECT CRATES 1, 2, 4 (RMB + Q)":
