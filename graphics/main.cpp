@@ -414,6 +414,99 @@ int main(int argc, char** argv) {
                             box.velocity.z*=std::exp(-4.0f*frame);
                         }
 
+                        // Resolve box AABB contacts after gravity/grabbing.
+                        // Ground contact, box-box separation and horizontal contacts
+                        // with the player and the vehicle (simple kinematic colliders).
+                        for(int iteration=0;iteration<4;++iteration) {
+                            for(int i=0;i<static_cast<int>(grabBoxes.size());++i) {
+                                GrabBox& a=grabBoxes[i];
+                                const float ha=a.size*0.5f;
+                                if(a.position.y<ha) {
+                                    a.position.y=ha;
+                                    if(a.velocity.y<0) a.velocity.y=0;
+                                }
+                                for(int j=i+1;j<static_cast<int>(grabBoxes.size());++j) {
+                                    GrabBox& b=grabBoxes[j];
+                                    const float hb=b.size*0.5f;
+                                    const float px=ha+hb-std::abs(a.position.x-b.position.x);
+                                    const float py=ha+hb-std::abs(a.position.y-b.position.y);
+                                    const float pz=ha+hb-std::abs(a.position.z-b.position.z);
+                                    if(px<=0 || py<=0 || pz<=0) continue;
+                                    // Move along the least-penetrating axis.
+                                    int axis=0;
+                                    float depth=px;
+                                    if(py<depth) {axis=1;depth=py;}
+                                    if(pz<depth) {axis=2;depth=pz;}
+                                    const bool holdA=i==grabbedBox,holdB=j==grabbedBox;
+                                    const float moveA=holdA?0.0f:(holdB?1.0f:0.5f);
+                                    const float moveB=holdB?0.0f:(holdA?1.0f:0.5f);
+                                    float* ap=axis==0?&a.position.x:(axis==1?&a.position.y:&a.position.z);
+                                    float* bp=axis==0?&b.position.x:(axis==1?&b.position.y:&b.position.z);
+                                    float* av=axis==0?&a.velocity.x:(axis==1?&a.velocity.y:&a.velocity.z);
+                                    float* bv=axis==0?&b.velocity.x:(axis==1?&b.velocity.y:&b.velocity.z);
+                                    const float sign=*ap>=*bp?1.0f:-1.0f;
+                                    *ap+=sign*depth*moveA;
+                                    *bp-=sign*depth*moveB;
+                                    if(*av*sign<0) *av=0;
+                                    if(*bv*sign>0) *bv=0;
+                                }
+                                if(i==grabbedBox) continue;
+                                // Player: vertical capsule approximated by a circle
+                                // against the crate's horizontal AABB.
+                                if(!player.insideCar) {
+                                    const Vector3 pp=player.position();
+                                    if(a.position.y+ha>pp.y &&
+                                       a.position.y-ha<pp.y+1.75f) {
+                                        const float cx=std::clamp(pp.x,a.position.x-ha,a.position.x+ha);
+                                        const float cz=std::clamp(pp.z,a.position.z-ha,a.position.z+ha);
+                                        float dx=cx-pp.x,dz=cz-pp.z;
+                                        const float distanceSq=dx*dx+dz*dz;
+                                        constexpr float radius=0.30f;
+                                        if(distanceSq<radius*radius) {
+                                            if(distanceSq>1e-8f) {
+                                                const float d=std::sqrt(distanceSq);
+                                                a.position.x+=dx/d*(radius-d);
+                                                a.position.z+=dz/d*(radius-d);
+                                            } else {
+                                                const float xSide=ha+radius-std::abs(a.position.x-pp.x);
+                                                const float zSide=ha+radius-std::abs(a.position.z-pp.z);
+                                                if(xSide<zSide) a.position.x+=(a.position.x>=pp.x?xSide:-xSide);
+                                                else a.position.z+=(a.position.z>=pp.z?zSide:-zSide);
+                                            }
+                                            a.velocity.x=0;
+                                            a.velocity.z=0;
+                                        }
+                                    }
+                                }
+                                // Vehicle: conservative world AABB of its oriented body.
+                                const Vector3 ch=chassis.collisionHalfExtents();
+                                const Vector3 cpos=Vector3Add(pos,Vector3{0,-0.30f,0});
+                                const Vector3 ex=Vector3RotateByQuaternion(Vector3{ch.x,0,0},orientation);
+                                const Vector3 ey=Vector3RotateByQuaternion(Vector3{0,ch.y,0},orientation);
+                                const Vector3 ez=Vector3RotateByQuaternion(Vector3{0,0,ch.z},orientation);
+                                const Vector3 extent{
+                                    std::abs(ex.x)+std::abs(ey.x)+std::abs(ez.x),
+                                    std::abs(ex.y)+std::abs(ey.y)+std::abs(ez.y),
+                                    std::abs(ex.z)+std::abs(ey.z)+std::abs(ez.z)
+                                };
+                                const float px=ha+extent.x-std::abs(a.position.x-cpos.x);
+                                const float py=ha+extent.y-std::abs(a.position.y-cpos.y);
+                                const float pz=ha+extent.z-std::abs(a.position.z-cpos.z);
+                                if(px>0 && py>0 && pz>0) {
+                                    if(px<=py && px<=pz) {
+                                        a.position.x+=(a.position.x>=cpos.x?px:-px);
+                                        a.velocity.x=0;
+                                    } else if(py<=pz) {
+                                        a.position.y+=(a.position.y>=cpos.y?py:-py);
+                                        a.velocity.y=0;
+                                    } else {
+                                        a.position.z+=(a.position.z>=cpos.z?pz:-pz);
+                                        a.velocity.z=0;
+                                    }
+                                }
+                            }
+                        }
+
                         int groundedCount=0;
                         int drivenGrounded=0;
                         for (int i=0;i<rv_vehicle_wheel_count(car);++i) {
@@ -443,6 +536,18 @@ int main(int argc, char** argv) {
                             pos,Vector3{0.0f,-carVisualDrop,0.0f});
                         chassis.draw(carVisualPosition,orientation,1.0f,WHITE);
                         player.draw();
+                        // Green fake contact shadow: footprint stays on the ground
+                        // even when a crate is lifted by the red ray.
+                        for(const GrabBox& box:grabBoxes) {
+                            const float footprint=box.size*0.94f;
+                            const float elevation=std::max(0.0f,box.position.y-box.size*0.5f);
+                            const float alpha=std::clamp(0.55f/(1.0f+elevation*0.35f),0.12f,0.55f);
+                            const Vector3 ground{box.position.x,0.012f,box.position.z};
+                            DrawCube(ground,footprint,0.008f,footprint,
+                                     Fade(Color{25,225,65,255},alpha));
+                            DrawCubeWires(ground,footprint,0.008f,footprint,
+                                          Fade(DARKGREEN,0.8f));
+                        }
                         for(int i=0;i<static_cast<int>(grabBoxes.size());++i) {
                             const GrabBox& box=grabBoxes[i];
                             const Color color=i==grabbedBox?ORANGE:Color{180,135,85,255};
