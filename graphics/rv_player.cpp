@@ -35,6 +35,8 @@ void RVPlayer::update(float dt, const Camera3D& camera) {
     if(grounded_ && IsKeyPressed(KEY_SPACE)) {
         verticalVelocity_=jumpSpeed;
         grounded_=false;
+        animation_.play("Jump",false);
+        walking_=false;
     }
     if(!grounded_) {
         verticalVelocity_-=gravity*dt;
@@ -60,15 +62,23 @@ void RVPlayer::update(float dt, const Camera3D& camera) {
         position_=Vector3Add(position_,Vector3Scale(movement,4.0f*dt));
         facing_=std::atan2(movement.x,movement.z);
         walkPhase_+=dt*11.0f;
-        if (!walking_) {
+        if (grounded_ && !walking_) {
             if (!animation_.play("Walking",true)) animation_.play("Default",true);
             walking_=true;
         }
     } else {
         walkPhase_=0.0f;
-        if (walking_) {
+        if (grounded_ && walking_) {
             if (!animation_.play("Idle",true)) animation_.play("BindPose",true);
             walking_=false;
+        }
+    }
+    if(grounded_ && !walking_) {
+        if(Vector3LengthSqr(movement)>0.0001f) {
+            if(!animation_.play("Walking",true)) animation_.play("Default",true);
+            walking_=true;
+        } else {
+            if(!animation_.play("Idle",true)) animation_.play("BindPose",true);
         }
     }
     animation_.update(dt);
