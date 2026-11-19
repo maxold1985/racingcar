@@ -1,0 +1,52 @@
+#include <assimp/matrix4x4.h>
+#include <assimp/vector3.h>
+#include <cassert>
+#include <cmath>
+#include <cstdio>
+
+static aiMatrix4x4 translation(float x,float y,float z) {
+    aiMatrix4x4 m;
+    m.a4=x;m.b4=y;m.c4=z;
+    return m;
+}
+static bool closeEnough(const aiVector3D& a,const aiVector3D& b) {
+    const auto d=a-b;
+    return d.SquareLength()<1e-6f;
+}
+static aiMatrix4x4 retarget(const aiMatrix4x4& targetBind,
+                           const aiMatrix4x4& sourceBind,
+                           const aiMatrix4x4& sourcePose) {
+    aiMatrix4x4 inverseSource=sourceBind;
+    aiMatrix4x4 inverseTarget=targetBind;
+    inverseSource.Inverse();
+    inverseTarget.Inverse();
+    return targetBind*inverseSource*sourcePose*inverseTarget;
+}
+int main() {
+    // Rig and clip use different world origins. The rest pose MUST be preserved.
+    const aiMatrix4x4 targetBind=translation(-3.0f,8.0f,2.0f);
+    const aiMatrix4x4 sourceBind=translation(15.0f,4.0f,-8.0f);
+    const aiVector3D vertex(-3.0f,9.0f,3.0f);
+    const aiVector3D atRest=retarget(targetBind,sourceBind,sourceBind)*vertex;
+    assert(closeEnough(atRest,vertex));
+
+    // A 90-degree source bone rotation must happen about the TARGET joint.
+    aiMatrix4x4 rotation;
+    rotation.a1=0.0f;rotation.a3=1.0f;
+    rotation.c1=-1.0f;rotation.c3=0.0f;
+    const aiMatrix4x4 sourceFrame=sourceBind*rotation;
+    const aiMatrix4x4 transformed=retarget(targetBind,sourceBind,sourceFrame);
+    const aiMatrix4x4 expected=targetBind*rotation*translation(3.0f,-8.0f,-2.0f);
+    assert(closeEnough(transformed*vertex,expected*vertex));
+
+    // Weighted linear blend skinning at bind pose may never displace vertices.
+    const aiMatrix4x4 bindA=translation(1,0,0);
+    const aiMatrix4x4 bindB=translation(0,1,0);
+    const aiVector3D p(3,4,5);
+    const aiVector3D blended=
+        (retarget(bindA,sourceBind,sourceBind)*p)*0.3f+
+        (retarget(bindB,sourceBind,sourceBind)*p)*0.7f;
+    assert(closeEnough(blended,p));
+    std::puts("Mixamo source/target bind-pose retargeting OK");
+    return 0;
+}
