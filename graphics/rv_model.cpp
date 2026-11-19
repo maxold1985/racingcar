@@ -1,6 +1,8 @@
 #include "rv_model.hpp"
 #include "raymath.h"
 #include <cstdio>
+#include <algorithm>
+#include <cmath>
 
 bool RVModel::load(const std::string& path) {
     unload();
@@ -30,12 +32,18 @@ void RVModel::unload() {
     if (active) UnloadModel(model);
     model = Model{};
     active = false;
+    modelScale = 1.0f;
+    modelCenter = Vector3{0,0,0};
 }
 void RVModel::draw(Vector3 position, Quaternion rotation, float scale, Color tint) const {
     if (!active) return;
     Vector3 axis{0,1,0};
     float angle = 0;
     QuaternionToAxisAngle(QuaternionNormalize(rotation), &axis, &angle);
-    DrawModelEx(model, position, axis, angle * RAD2DEG,
-                Vector3{scale, scale, scale}, tint);
+    const float finalScale = scale * modelScale;
+    const Vector3 centerOffset = Vector3RotateByQuaternion(
+        Vector3Scale(modelCenter, finalScale), rotation);
+    const Vector3 drawPosition = Vector3Subtract(position, centerOffset);
+    DrawModelEx(model, drawPosition, axis, angle * RAD2DEG,
+                Vector3{finalScale, finalScale, finalScale}, tint);
 }
