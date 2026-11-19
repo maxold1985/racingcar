@@ -57,7 +57,7 @@ RVBodyDesc rv_default_body(void) {
     d.mass=1200.0f;
     d.inertia=v3(2500.0f,2100.0f,600.0f);
     d.position=v3(0,1.0f,0);
-    d.orientation=(RVQuat){0,0,0,1};
+    d.orientation=RVQuat{0,0,0,1};
     d.gravity=9.81f;
     d.linear_drag=0.45f;
     d.angular_drag=950.0f;
@@ -242,7 +242,7 @@ int rv_vehicle_step(RVVehicle* v, float dt, RVRaycastFn raycast, void* user) {
     body->angular_velocity += rotate(body->orientation, local_alpha) * dt;
     RVQuat omega={body->angular_velocity.x,body->angular_velocity.y,body->angular_velocity.z,0};
     RVQuat qdot=quat_mul(omega,body->orientation);
-    body->orientation=quat_norm((RVQuat){
+    body->orientation=quat_norm(RVQuat{
         body->orientation.x+0.5f*dt*qdot.x,
         body->orientation.y+0.5f*dt*qdot.y,
         body->orientation.z+0.5f*dt*qdot.z,
