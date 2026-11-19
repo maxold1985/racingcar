@@ -3,6 +3,7 @@
 #include "rv_physics.h"
 #include "raylib.h"
 #include "raymath.h"
+#include "rlgl.h"
 #include <lua.h>
 #include <lualib.h>
 #include <luacode.h>
@@ -99,10 +100,25 @@ static int readVehicleId(lua_State* L) {
 int main(int argc, char** argv) {
     const char* chassisPath=argc>1 ? argv[1] : nullptr;
     const char* scriptPath=argc>2 ? argv[2] : RV_DEFAULT_GAME_SCRIPT;
+    const char* pavementPath=argc>3 ? argv[3] : "..\\..\\assets\\pavimento.webp";
 
     InitWindow(1280,720,"racingcar - Luau raycast racing");
     if (!IsWindowReady()) return 1;
     SetTargetFPS(120);
+
+    Texture2D pavement{};
+    bool pavementLoaded=false;
+    if (FileExists(pavementPath)) {
+        pavement=LoadTexture(pavementPath);
+        pavementLoaded=IsTextureValid(pavement);
+        if (pavementLoaded) {
+            SetTextureFilter(pavement,TEXTURE_FILTER_BILINEAR);
+            SetTextureWrap(pavement,TEXTURE_WRAP_REPEAT);
+            std::fprintf(stderr,"Pavement texture loaded: %s (%dx%d)\\n",
+                         pavementPath,pavement.width,pavement.height);
+        }
+    }
+    if (!pavementLoaded) std::fprintf(stderr,"Pavement WEBP not loaded: %s; using solid ground\\n",pavementPath);
 
     RVModel chassis;
     // The imported GLB already includes its own wheels. Keep simulated tires
@@ -234,8 +250,24 @@ int main(int argc, char** argv) {
                         BeginDrawing();
                         ClearBackground(Color{125,180,220,255});
                         BeginMode3D(camera);
-                        DrawPlane(Vector3{0,-0.025f,0},Vector2{1500,1500},Color{65,100,65,255});
-                        DrawGrid(80,5);
+                        if (pavementLoaded) {
+                            // Repeat the image every 5 metres across the 1500m plane.
+                            // Geometry is drawn at Y=-0.025 to avoid fighting with
+                            // the collision plane at Y=0.
+                            rlSetTexture(pavement.id);
+                            rlBegin(RL_QUADS);
+                                rlColor4ub(255,255,255,255);
+                                rlNormal3f(0.0f,1.0f,0.0f);
+                                rlTexCoord2f(0.0f,0.0f);     rlVertex3f(-750.0f,-0.025f,-750.0f);
+                                rlTexCoord2f(300.0f,0.0f);   rlVertex3f( 750.0f,-0.025f,-750.0f);
+                                rlTexCoord2f(300.0f,300.0f); rlVertex3f( 750.0f,-0.025f, 750.0f);
+                                rlTexCoord2f(0.0f,300.0f);   rlVertex3f(-750.0f,-0.025f, 750.0f);
+                            rlEnd();
+                            rlSetTexture(0);
+                        } else {
+                            DrawPlane(Vector3{0,-0.025f,0},Vector2{1500,1500},Color{65,100,65,255});
+                            DrawGrid(80,5);
+                        }
                         // WHITE preserves the imported glTF/GLB base-color textures and materials.
                         // A red tint multiplies every material color and makes the car red.
                         chassis.draw(pos,orientation,1.0f,WHITE);
@@ -266,6 +298,7 @@ int main(int argc, char** argv) {
         }
     }
     chassis.unload();
+    if (pavementLoaded) UnloadTexture(pavement);
     CloseWindow();
     return status;
 }
