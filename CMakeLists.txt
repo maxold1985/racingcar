@@ -119,7 +119,7 @@ if(RV_WITH_GRAPHICS)
             GIT_SHALLOW TRUE)
     endif()
     FetchContent_MakeAvailable(assimp)
-    add_executable(racingcar_game graphics/main.cpp graphics/rv_model.cpp graphics/rv_player.cpp graphics/rv_animation.cpp graphics/webp_texture.cpp src/rv_luau.cpp)
+    add_executable(racingcar_game graphics/main.cpp graphics/rv_model.cpp graphics/rv_player.cpp graphics/rv_animation.cpp graphics/rv_game_config.cpp graphics/webp_texture.cpp src/rv_luau.cpp)
     target_include_directories(racingcar_game PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/include"
         "${CMAKE_CURRENT_SOURCE_DIR}/src"
