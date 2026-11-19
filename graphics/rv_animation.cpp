@@ -349,6 +349,23 @@ void RVAnimation::update(float dt) {
     }
     Pose animated;
     gatherPose(clip.source->mRootNode,aiMatrix4x4(),clip.channels,tick,animated);
+    // Character movement belongs to RVPlayer, not the animation clip.
+    // Remove only horizontal displacement of Mixamo Hips relative to
+    // its bind pose. Preserve vertical bobbing, limb movement and rotations.
+    // Apply the correction to all animated global bone matrices so their
+    // relative hierarchy remains unchanged.
+    if(clip.sameSkeleton) {
+        const auto hipsNow=animated.find("Hips");
+        const auto hipsRest=targetBind_.find("Hips");
+        if(hipsNow!=animated.end() && hipsRest!=targetBind_.end()) {
+            const float dx=hipsNow->second.a4-hipsRest->second.a4;
+            const float dz=hipsNow->second.c4-hipsRest->second.c4;
+            for(auto& entry:animated) {
+                entry.second.a4-=dx;
+                entry.second.c4-=dz;
+            }
+        }
+    }
     // One-time diagnostics: detect FBX channel translations/scales which
     // stretch bones away from their imported bind positions.
     static bool reportedPose=false;
