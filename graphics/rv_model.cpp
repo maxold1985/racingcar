@@ -44,6 +44,7 @@ bool RVModel::load(const std::string& path) {
         const float longest = std::max({size.x, size.y, size.z});
         if (std::isfinite(longest) && longest > 1e-5f) {
             modelScale = 3.5f / longest;
+            collisionHalfExtents_ = Vector3Scale(size,0.5f*modelScale);
             modelCenter = Vector3Scale(Vector3Add(box.min, box.max), 0.5f);
             std::fprintf(stderr, "Model dimensions: %.3f x %.3f x %.3f, scale %.6f\n",
                          size.x, size.y, size.z, modelScale);
@@ -55,6 +56,7 @@ void RVModel::makeCube(float width, float height, float length) {
     unload();
     model = LoadModelFromMesh(GenMeshCube(width, height, length));
     active = IsModelValid(model);
+    collisionHalfExtents_ = Vector3{width*0.5f,height*0.5f,length*0.5f};
 }
 void RVModel::makeWheel(float radius, float width) {
     unload();
@@ -68,6 +70,7 @@ void RVModel::unload() {
     active = false;
     modelScale = 1.0f;
     modelCenter = Vector3{0,0,0};
+    collisionHalfExtents_ = Vector3{0.85f,0.75f,1.75f};
 }
 void RVModel::draw(Vector3 position, Quaternion rotation, float scale, Color tint) const {
     if (!active) return;
