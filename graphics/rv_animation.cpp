@@ -161,7 +161,7 @@ bool RVAnimation::loadCharacter(const char* path) {
     gatherPose(scene_->mRootNode,aiMatrix4x4(),Channels{},0.0,targetBind_,&meshNodes);
     const float extreme=std::numeric_limits<float>::max();
     aiVector3D low(extreme,extreme,extreme),high(-extreme,-extreme,-extreme);
-    unsigned totalBones=0, skippedBones=0;
+    unsigned totalBones=0, skippedBones=0, fallbackOffsets=0;
     for(unsigned mi=0;mi<scene_->mNumMeshes;++mi) {
         const aiMesh* src=scene_->mMeshes[mi];
         if(!src->mNumVertices || !src->mNumFaces) continue;
@@ -233,10 +233,13 @@ bool RVAnimation::loadCharacter(const char* path) {
                 // unanimated geometry is never stretched.
                 const aiMatrix4x4 bindCheck=bone.targetBind*bone.offsetInModelSpace;
                 if(!std::isfinite(bindMatrixError(bindCheck)) ||
-                   bindMatrixError(bindCheck)>0.1f)
+                   bindMatrixError(bindCheck)>0.1f) {
                     bone.offsetInModelSpace=bone.targetBindInverse;
+                    ++fallbackOffsets;
+                }
             } else {
                 bone.offsetInModelSpace=bone.targetBindInverse;
+                ++fallbackOffsets;
             }
             for(unsigned w=0;w<input->mNumWeights;++w) {
                 const auto& weight=input->mWeights[w];
@@ -279,6 +282,8 @@ bool RVAnimation::loadCharacter(const char* path) {
     std::fprintf(stderr,
         "Animated character: %u meshes, %zu skinned parts, %u bones (%u unmatched), scale %.5f\n",
         scene_->mNumMeshes,parts_.size(),totalBones,skippedBones,scale_);
+    std::fprintf(stderr,"[FBX BIND] offsets requiring rest-pose fallback: %u/%u\\n",
+                 fallbackOffsets,totalBones);
     return true;
 }
 bool RVAnimation::loadClip(const std::string& name,const char* path) {
@@ -307,11 +312,12 @@ bool RVAnimation::loadClip(const std::string& name,const char* path) {
         clip.duration=clip.animation->mDuration;
         clip.ticksPerSecond=clip.animation->mTicksPerSecond>0?
             clip.animation->mTicksPerSecond:25.0;
+        const aiAnimation* selected=clip.animation;
         clips_[name]=std::move(clip);
         std::fprintf(stderr,
             "Animation %s: FBX take '%s' (%u channels, %.2f ticks) from character\n",
-            name.c_str(),clip.animation->mName.C_Str(),
-            clip.animation->mNumChannels,clip.animation->mDuration);
+            name.c_str(),selected->mName.C_Str(),
+            selected->mNumChannels,selected->mDuration);
         return true;
     }
     Clip clip;
