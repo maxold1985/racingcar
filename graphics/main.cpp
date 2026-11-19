@@ -24,89 +24,137 @@
 // replace this callback with mesh collision / BVH raycasts.
 
 #include <unordered_map>
+#include <cstdint>
 #include <memory>
 
-// Procedural city bridge. Luau owns chunk placement; the renderer owns GPU models.
-struct CityInstance { int chunk; int model; Vector3 position; float rotation; };
-static std::vector<CityInstance> cityInstances;
-static std::unordered_map<int, Model> cityModels;
-static std::unordered_map<int, bool> cityMissing;
+// City streaming: chunks are Luau-owned, sectors are native draw buckets.
+struct CityInstance { int model; Vector3 position; float rotation; };
+struct CitySector { std::vector<CityInstance> instances; };
+struct CityChunk { std::unordered_map<std::int64_t,CitySector> sectors; std::size_t count=0; };
+static std::unordered_map<int,CityChunk> cityChunks;
+static std::unordered_map<int,Model> cityModels;
+static std::unordered_map<int,bool> cityMissing;
 static const char* cityNames[] = {
     "Street_2Lane", "Street_4WayIntersection", "Street_TIntersection",
     "Building_Small_1", "Building_Medium_2_001", "Building_Large_2",
     "Sidewalk_Straight_3m", "Sidewalk_Corner_Round_3m"
 };
 static std::string cityAssetDirectory = "assets/city";
+static constexpr float citySectorSize=48.0f;
+static constexpr float cityDrawRadius=200.0f;
+static constexpr std::size_t cityInstanceLimit=20000;
+static std::size_t cityInstanceCount=0;
+static int citySectorCoord(float value) {
+    return static_cast<int>(std::floor(value/citySectorSize));
+}
 static std::string resolveCityFile(const std::string& relative) {
     const std::string prefixes[] = {"", "../", "../../", "../../../"};
-    for (const auto& prefix : prefixes) {
-        const std::string candidate = prefix + relative;
+    for (const auto& prefix:prefixes) {
+        const std::string candidate=prefix+relative;
         if (FileExists(candidate.c_str())) return candidate;
     }
     return relative;
 }
 static int cityAdd(lua_State* L) {
-    int chunk = static_cast<int>(luaL_checkinteger(L,1));
-    int model = static_cast<int>(luaL_checkinteger(L,2));
-    if (model < 1 || model > 8) { luaL_error(L,"invalid city model ID"); return 0; }
-    if (cityInstances.size() >= 20000) { luaL_error(L,"city instance limit reached"); return 0; }
-    float x=static_cast<float>(luaL_checknumber(L,3));
-    float y=static_cast<float>(luaL_checknumber(L,4));
-    float z=static_cast<float>(luaL_checknumber(L,5));
-    float rotation=static_cast<float>(luaL_optnumber(L,6,0));
-    if (!std::isfinite(x)||!std::isfinite(y)||!std::isfinite(z)||!std::isfinite(rotation))
-        { luaL_error(L,"non-finite city transform"); return 0; }
-    cityInstances.push_back({chunk,model,{x,y,z},rotation});
+    const int chunk=static_cast<int>(luaL_checkinteger(L,1));
+    const int model=static_cast<int>(luaL_checkinteger(L,2));
+    if (model<1 || model>8) { luaL_error(L,"invalid city model ID"); return 0; }
+    if (cityInstanceCount>=cityInstanceLimit) { luaL_error(L,"city instance limit reached"); return 0; }
+    const float x=static_cast<float>(luaL_checknumber(L,3));
+    const float y=static_cast<float>(luaL_checknumber(L,4));
+    const float z=static_cast<float>(luaL_checknumber(L,5));
+    const float rotation=static_cast<float>(luaL_optnumber(L,6,0));
+    if (!std::isfinite(x)||!std::isfinite(y)||!std::isfinite(z)||!std::isfinite(rotation)) {
+        luaL_error(L,"non-finite city transform"); return 0;
+    }
+    // Sectors use global coordinates, avoiding collisions at negative positions.
+    const int sx=citySectorCoord(x),sz=citySectorCoord(z);
+    // Use a 64-bit sector key so large/negative coordinates do not alias.
+    const std::int64_t key=(static_cast<std::int64_t>(static_cast<std::uint32_t>(sx))<<32) |
+        static_cast<std::uint32_t>(sz);
+    // Keep the sector hash in a global map keyed by chunk and sector.
+    // The sector container uses 64-bit keys (see CityChunk below).
+    cityChunks[chunk].sectors[key].instances.push_back({model,{x,y,z},rotation});
+    ++cityChunks[chunk].count;
+    ++cityInstanceCount;
     return 0;
 }
 static int cityRemove(lua_State* L) {
-    int chunk=static_cast<int>(luaL_checkinteger(L,1));
-    cityInstances.erase(std::remove_if(cityInstances.begin(),cityInstances.end(),
-        [chunk](const CityInstance& v){return v.chunk==chunk;}),cityInstances.end());
+    const int chunk=static_cast<int>(luaL_checkinteger(L,1));
+    auto it=cityChunks.find(chunk);
+    if (it!=cityChunks.end()) {
+        cityInstanceCount-=it->second.count;
+        cityChunks.erase(it);
+    }
     return 0;
 }
 static void registerCity(lua_State* L) {
     lua_createtable(L,0,2);
-    lua_pushcfunction(L,cityAdd,"add"); lua_setfield(L,-2,"add");
-    lua_pushcfunction(L,cityRemove,"remove"); lua_setfield(L,-2,"remove");
+    lua_pushcfunction(L,cityAdd,"add");lua_setfield(L,-2,"add");
+    lua_pushcfunction(L,cityRemove,"remove");lua_setfield(L,-2,"remove");
     lua_setglobal(L,"CityWorld");
 }
-static void drawCity(Vector3 cameraPosition) {
-    for (const CityInstance& instance:cityInstances) {
-        const float dx=instance.position.x-cameraPosition.x;
-        const float dz=instance.position.z-cameraPosition.z;
-        if (dx*dx+dz*dz > 480.0f*480.0f) continue;
-        if (!cityModels.count(instance.model) && !cityMissing.count(instance.model)) {
-            const std::string file=resolveCityFile(cityAssetDirectory+"/"+cityNames[instance.model-1]+".glb");
-            if (FileExists(file.c_str())) {
+static void loadOneCityModel() {
+    // Amortize GLB uploads: at most one new model per frame.
+    for (const auto& chunk:cityChunks) {
+        for (const auto& sector:chunk.second.sectors) {
+            for (const CityInstance& instance:sector.second.instances) {
+                if (cityModels.count(instance.model)||cityMissing.count(instance.model)) continue;
+                const std::string file=resolveCityFile(cityAssetDirectory+"/"+cityNames[instance.model-1]+".glb");
+                if (!FileExists(file.c_str())) {
+                    cityMissing[instance.model]=true;
+                    std::fprintf(stderr,"[CITY] Missing GLB: %s\\n",file.c_str());
+                    return;
+                }
                 Model model=LoadModel(file.c_str());
                 if (IsModelValid(model)) {
                     cityModels.emplace(instance.model,model);
-                    std::fprintf(stderr,"[CITY] Loaded model: %s\\n",file.c_str());
+                    std::fprintf(stderr,"[CITY] Loaded: %s\\n",file.c_str());
                 } else {
                     cityMissing[instance.model]=true;
                     std::fprintf(stderr,"[CITY] Invalid GLB: %s\\n",file.c_str());
                 }
-            } else {
-                cityMissing[instance.model]=true;
-                std::fprintf(stderr,"[CITY] Missing GLB: %s\\n",file.c_str());
+                return;
             }
         }
-        auto it=cityModels.find(instance.model);
-        if (it!=cityModels.end())
-            DrawModelEx(it->second,instance.position,{0,1,0},instance.rotation,{1,1,1},WHITE);
+    }
+}
+static void drawCity(Vector3 cameraPosition) {
+    loadOneCityModel();
+    const float radius2=cityDrawRadius*cityDrawRadius;
+    for (const auto& chunk:cityChunks) {
+        for (const auto& sector:chunk.second.sectors) {
+            const auto& instances=sector.second.instances;
+            if (instances.empty()) continue;
+            // Bounding sector radius includes its diagonal and an allowance for models.
+            const Vector3 p=instances.front().position;
+            const float sx=std::floor(p.x/citySectorSize)*citySectorSize+citySectorSize*0.5f;
+            const float sz=std::floor(p.z/citySectorSize)*citySectorSize+citySectorSize*0.5f;
+            const float dx=sx-cameraPosition.x,dz=sz-cameraPosition.z;
+            const float sectorRadius=cityDrawRadius+citySectorSize;
+            if (dx*dx+dz*dz>sectorRadius*sectorRadius) continue;
+            for (const CityInstance& instance:instances) {
+                const float ix=instance.position.x-cameraPosition.x;
+                const float iz=instance.position.z-cameraPosition.z;
+                if (ix*ix+iz*iz>radius2) continue;
+                const auto it=cityModels.find(instance.model);
+                if (it!=cityModels.end())
+                    DrawModelEx(it->second,instance.position,{0,1,0},
+                        instance.rotation,{1,1,1},WHITE);
+            }
+        }
     }
 }
 static void unloadCity() {
     for (auto& item:cityModels) UnloadModel(item.second);
-    cityModels.clear(); cityMissing.clear(); cityInstances.clear();
+    cityModels.clear();cityMissing.clear();cityChunks.clear();cityInstanceCount=0;
 }
 static void updateCityScript(lua_State* L,Vector3 p) {
     lua_getglobal(L,"cityUpdate");
     if (!lua_isfunction(L,-1)) {lua_pop(L,1);return;}
     lua_pushnumber(L,p.x);lua_pushnumber(L,p.z);
     if (lua_pcall(L,2,0,0)!=0) {
-        std::fprintf(stderr,"City Luau error: %s\\n",lua_tostring(L,-1));
+        std::fprintf(stderr,"[CITY] Luau error: %s\\n",lua_tostring(L,-1));
         lua_pop(L,1);
     }
 }
