@@ -1,6 +1,7 @@
 #include "rv_animation.hpp"
 #include "raymath.h"
 #include <assimp/postprocess.h>
+#include <assimp/vector3.inl>
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
