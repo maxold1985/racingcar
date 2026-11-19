@@ -6,6 +6,8 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <limits>
 #include <unordered_set>
@@ -315,6 +317,11 @@ bool RVAnimation::play(const std::string& name,bool loop) {
     return true;
 }
 void RVAnimation::update(float dt) {
+    // Diagnostic: RV_BIND_POSE=1 leaves the uploaded meshes in their
+    // original imported pose. If this still looks distorted, the problem
+    // precedes animation (FBX node transforms / geometry import).
+    const char* bindPose=std::getenv("RV_BIND_POSE");
+    if(bindPose && std::strcmp(bindPose,"1")==0) return;
     if(!modelValid_ || active_.empty()) return;
     const auto it=clips_.find(active_);
     if(it==clips_.end()) return;
