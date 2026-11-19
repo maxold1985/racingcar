@@ -48,6 +48,30 @@ int main() {
         (retarget(bindA,sourceBind,sourceBind)*p)*0.3f+
         (retarget(bindB,sourceBind,sourceBind)*p)*0.7f;
     if(!closeEnough(blended,p)) { std::fputs("FAIL: weighted bind\n",stderr); return 3; }
-    std::puts("Mixamo source/target bind-pose retargeting OK");
+    // Real Mixamo clips begin in an animated running pose, not T-pose.
+    // A mesh node may itself be translated: its inverse must be removed
+    // once when skinning vertices already transformed to model space.
+    const aiMatrix4x4 meshBind=translation(3,0,0);
+    const aiMatrix4x4 boneBind=translation(3,4,0);
+    const aiMatrix4x4 meshLocalOffset=translation(0,-4,0);
+    aiMatrix4x4 meshInverse=meshBind;
+    meshInverse.Inverse();
+    const aiMatrix4x4 offsetModel=meshLocalOffset*meshInverse;
+    const aiVector3D modelVertex(3,5,0);
+    if(!closeEnough((boneBind*offsetModel)*modelVertex,modelVertex)) {
+        std::fputs("FAIL: mesh-node bind compensation\\n",stderr);
+        return 4;
+    }
+    aiMatrix4x4 firstFrameRotation;
+    firstFrameRotation.a1=0.0f;firstFrameRotation.a2=-1.0f;
+    firstFrameRotation.b1=1.0f;firstFrameRotation.b2=0.0f;
+    const aiMatrix4x4 firstFrameGlobal=boneBind*firstFrameRotation;
+    const aiVector3D firstFrame=(firstFrameGlobal*offsetModel)*modelVertex;
+    if(!closeEnough(firstFrame,aiVector3D(2,4,0)) ||
+       closeEnough(firstFrame,modelVertex)) {
+        std::fputs("FAIL: running first frame was incorrectly reset to bind pose\\n",stderr);
+        return 5;
+    }
+    std::puts("Mixamo bind matrices and animated first frame OK");
     return 0;
 }
