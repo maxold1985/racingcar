@@ -6,11 +6,11 @@ local car = Physics.newVehicle({
     position = vector.create(0, 1.0, 0),
     engineForce = 6500,
     brakeForce = 9500,
-    maxSteer = math.rad(25),
+    maxSteer = math.rad(18),
     -- Anti-roll bar stiffness in N/m: front and rear axle independently.
     -- The physics core transfers suspension force between left/right wheels.
-    antirollFront = 12000,
-    antirollRear = 9000,
+    antirollFront = 9000,
+    antirollRear = 7000,
 })
 
 local function addWheel(x, z, front)
@@ -24,7 +24,7 @@ local function addWheel(x, z, front)
         bumpDamping = 7000,
         reboundDamping = 8500,
         friction = 1.15,
-        lateralStiffness = 9000,
+        lateralStiffness = 6500,
         steering = front,
         driven = not front,
         axle = if front then 0 else 1,
@@ -42,10 +42,15 @@ vehicleId = car
 -- Capturing Input once keeps runtime reads dynamic and avoids stale imports.
 local input = Input
 
+local smoothSteer = 0
+
 function fixedUpdate(dt)
     local throttle = input.throttle
     local brake = input.brake
     local steer = input.steer
-    Physics.setControls(car, throttle, brake, steer)
+    -- Rate-limit steering to avoid instantaneous lateral tire impulses.
+    local maxChange = 3 * dt
+    smoothSteer += math.clamp(steer - smoothSteer, -maxChange, maxChange)
+    Physics.setControls(car, throttle, brake, smoothSteer)
     Physics.step(car, dt)
 end
