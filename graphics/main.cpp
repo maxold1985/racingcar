@@ -35,7 +35,12 @@ static bool loadScript(lua_State* L, const char* path) {
     std::ostringstream out; out << in.rdbuf();
     const std::string src=out.str();
     size_t bytes=0;
-    char* code=luau_compile(src.data(),src.size(),nullptr,&bytes);
+    // Input is written by the C++ host while the Luau script is running.
+    // Mark it mutable so GETIMPORT cannot cache stale Input.* values.
+    lua_CompileOptions options{};
+    const char* mutableGlobals[] = {"Input", nullptr};
+    options.mutableGlobals = mutableGlobals;
+    char* code=luau_compile(src.data(),src.size(),&options,&bytes);
     if (!code) return false;
     const int loadStatus=luau_load(L,path,code,bytes,0);
     std::free(code);
@@ -52,11 +57,19 @@ static bool loadScript(lua_State* L, const char* path) {
     return true;
 }
 static void setInput(lua_State* L, float throttle, float brake, float steer) {
-    lua_createtable(L,0,3);
-    lua_pushnumber(L,throttle); lua_setfield(L,-2,"throttle");
-    lua_pushnumber(L,brake); lua_setfield(L,-2,"brake");
-    lua_pushnumber(L,steer); lua_setfield(L,-2,"steer");
-    lua_setglobal(L,"Input");
+    // Reuse the SAME table: Luau scripts may retain a reference to Input.
+    // Replacing the global table every tick makes those references stale.
+    lua_getglobal(L, "Input");
+    if (!lua_istable(L, -1)) {
+        lua_pop(L, 1);
+        lua_createtable(L, 0, 3);
+        lua_pushvalue(L, -1);
+        lua_setglobal(L, "Input");
+    }
+    lua_pushnumber(L, throttle); lua_setfield(L, -2, "throttle");
+    lua_pushnumber(L, brake); lua_setfield(L, -2, "brake");
+    lua_pushnumber(L, steer); lua_setfield(L, -2, "steer");
+    lua_pop(L, 1);
 }
 static bool fixedUpdate(lua_State* L, float dt) {
     lua_getglobal(L,"fixedUpdate");
