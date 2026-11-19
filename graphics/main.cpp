@@ -259,6 +259,9 @@ int main(int argc, char** argv) {
                             accumulator=0.0f;
                         }
                         if (!player.insideCar) player.update(frame,camera);
+                        // Block walking through the car even before physics advances.
+                        player.resolveCarCollision(toRay(interactionState.position),
+                                                   carRotation,chassis.collisionHalfExtents());
                         const float throttle=player.insideCar ?
                             ((IsKeyDown(KEY_W)||IsKeyDown(KEY_UP)) ? 1.0f :
                              (IsKeyDown(KEY_S)||IsKeyDown(KEY_DOWN)) ? -0.45f : 0.0f) : 0.0f;
@@ -290,6 +293,9 @@ int main(int argc, char** argv) {
                         state=rv_vehicle_get_state(car);
                         const Vector3 pos=toRay(state.position);
                         const Quaternion orientation=toRay(state.orientation);
+                        // Moving car also pushes an on-foot player out of overlap.
+                        player.resolveCarCollision(pos,orientation,
+                                                   chassis.collisionHalfExtents());
                         // Camera follows chassis position but not its pitch/roll.
                         // Mouse drag: orbit. Mouse wheel: distance. Home: reset view.
                         if (IsMouseButtonDown(MOUSE_BUTTON_RIGHT)) {
