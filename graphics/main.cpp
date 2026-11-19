@@ -37,6 +37,14 @@ static const char* cityNames[] = {
     "Sidewalk_Straight_3m", "Sidewalk_Corner_Round_3m"
 };
 static std::string cityAssetDirectory = "assets/city";
+static std::string resolveCityFile(const std::string& relative) {
+    const std::string prefixes[] = {"", "../", "../../", "../../../"};
+    for (const auto& prefix : prefixes) {
+        const std::string candidate = prefix + relative;
+        if (FileExists(candidate.c_str())) return candidate;
+    }
+    return relative;
+}
 static int cityAdd(lua_State* L) {
     int chunk = static_cast<int>(luaL_checkinteger(L,1));
     int model = static_cast<int>(luaL_checkinteger(L,2));
@@ -69,12 +77,20 @@ static void drawCity(Vector3 cameraPosition) {
         const float dz=instance.position.z-cameraPosition.z;
         if (dx*dx+dz*dz > 480.0f*480.0f) continue;
         if (!cityModels.count(instance.model) && !cityMissing.count(instance.model)) {
-            const std::string file=cityAssetDirectory+"/"+cityNames[instance.model-1]+".glb";
+            const std::string file=resolveCityFile(cityAssetDirectory+"/"+cityNames[instance.model-1]+".glb");
             if (FileExists(file.c_str())) {
                 Model model=LoadModel(file.c_str());
-                if (IsModelValid(model)) cityModels.emplace(instance.model,model);
-                else cityMissing[instance.model]=true;
-            } else cityMissing[instance.model]=true;
+                if (IsModelValid(model)) {
+                    cityModels.emplace(instance.model,model);
+                    std::fprintf(stderr,"[CITY] Loaded model: %s\\n",file.c_str());
+                } else {
+                    cityMissing[instance.model]=true;
+                    std::fprintf(stderr,"[CITY] Invalid GLB: %s\\n",file.c_str());
+                }
+            } else {
+                cityMissing[instance.model]=true;
+                std::fprintf(stderr,"[CITY] Missing GLB: %s\\n",file.c_str());
+            }
         }
         auto it=cityModels.find(instance.model);
         if (it!=cityModels.end())
@@ -288,8 +304,13 @@ int main(int argc, char** argv) {
                 status=1;
             } else {
                 // Optional procedural city: loaded after the vehicle script.
-                if (FileExists("scripts/city_generator.luau"))
-                    loadScript(L,"scripts/city_generator.luau");
+                const std::string cityScript=resolveCityFile("scripts/city_generator.luau");
+                if (FileExists(cityScript.c_str())) {
+                    if (loadScript(L,cityScript.c_str()))
+                        std::fprintf(stderr,"[CITY] Luau generator loaded: %s\\n",cityScript.c_str());
+                } else {
+                    std::fprintf(stderr,"[CITY] Generator missing: %s\\n",cityScript.c_str());
+                }
                 const int vehicleId=readVehicleId(L);
                 auto it=ctx.vehicles.find(vehicleId);
                 if (it==ctx.vehicles.end()) {
@@ -1042,13 +1063,13 @@ int main(int argc, char** argv) {
                         BeginDrawing();
                         ClearBackground(Color{125,180,220,255});
                         BeginMode3D(camera);
-                        drawCity(camera.position);
                         if (pavementLoaded) {
                             DrawModel(pavementModel,Vector3{0,-0.025f,0},1.0f,WHITE);
                         } else {
                             DrawPlane(Vector3{0,-0.025f,0},Vector2{1500,1500},Color{65,100,65,255});
                             DrawGrid(80,5);
                         }
+                        drawCity(camera.position);
                         // WHITE preserves the imported glTF/GLB base-color textures and materials.
                         // A red tint multiplies every material color and makes the car red.
                         // The visible wheels are part of the GLB chassis mesh;
