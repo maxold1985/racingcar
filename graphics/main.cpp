@@ -135,7 +135,8 @@ static void drawRoadTile(const CityInstance& instance) {
     const Color white{224,225,222,255};
     if (instance.model==10) {
         // Full-width intersection joins both perpendicular road corridors.
-        DrawCube({x,surfaceY,z},{cell,0.06f,cell},asphalt);
+        DrawCube({x,surfaceY,z},{cell,0.06f,halfRoad*2},asphalt);
+        DrawCube({x,surfaceY,z},{halfRoad*2,0.06f,cell},asphalt);
         // Four approach markings, positioned inside the intersection edges.
         for (int i=-1;i<=1;i++) {
             const float offset=i*2.7f;
