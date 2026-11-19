@@ -39,12 +39,21 @@ static bool field_bool(lua_State* L, int table, const char* name, bool fallback)
     lua_pop(L, 1);
     return value;
 }
-static RVVec3 read_vec(lua_State* L, int table, RVVec3 initial) {
-    luaL_checktype(L, table, LUA_TTABLE);
+static RVVec3 read_vec(lua_State* L, int index, RVVec3 initial) {
+    // Luau native vectors support +, -, * and / in scripts. For compatibility,
+    // also accept legacy {x=..., y=..., z=...} tables as inputs.
+    if (lua_isvector(L, index)) {
+        const float* components = lua_tovector(L, index);
+        RVVec3 value{components[0], components[1], components[2]};
+        if (!std::isfinite(value.x) || !std::isfinite(value.y) || !std::isfinite(value.z))
+            luaL_error(L, "vector components must be finite");
+        return value;
+    }
+    luaL_checktype(L, index, LUA_TTABLE);
     return RVVec3{
-        field_num(L, table, "x", initial.x),
-        field_num(L, table, "y", initial.y),
-        field_num(L, table, "z", initial.z)
+        field_num(L, index, "x", initial.x),
+        field_num(L, index, "y", initial.y),
+        field_num(L, index, "z", initial.z)
     };
 }
 static RVVec3 field_vec(lua_State* L, int table, const char* name, RVVec3 initial) {
@@ -71,10 +80,11 @@ static RVQuat field_quat(lua_State* L, int table, const char* name, RVQuat initi
     return result;
 }
 static void push_vec(lua_State* L, RVVec3 v) {
-    lua_createtable(L,0,3);
-    lua_pushnumber(L,v.x); lua_setfield(L,-2,"x");
-    lua_pushnumber(L,v.y); lua_setfield(L,-2,"y");
-    lua_pushnumber(L,v.z); lua_setfield(L,-2,"z");
+#if LUA_VECTOR_SIZE == 4
+    lua_pushvector(L, v.x, v.y, v.z, 0.0f);
+#else
+    lua_pushvector(L, v.x, v.y, v.z);
+#endif
 }
 static void push_quat(lua_State* L, RVQuat q) {
     lua_createtable(L,0,4);
