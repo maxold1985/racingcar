@@ -1,4 +1,7 @@
 #include "rv_vec3.hpp"
+#ifdef NDEBUG
+#undef NDEBUG // Keep runtime checks active in Release builds.
+#endif
 #include <cassert>
 #include <cmath>
 #include <type_traits>
