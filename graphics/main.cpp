@@ -106,11 +106,20 @@ int main(int argc, char** argv) {
     if(argc>1 && IsFileExtension(argv[1],".txt")) {
         configFile=argv[1];
     } else if(argc==1) {
-        // Works both from repository root and build/Release.
-        if(FileExists("game.txt")) configFile="game.txt";
-        else if(FileExists("../../game.txt")) configFile="../../game.txt";
+        // Resolve game.txt independently of the process working directory.
+        // The source-tree path is injected by CMake for IDE/VS launches.
+        const char* candidates[]={
+            "game.txt","../game.txt","../../game.txt","../../../game.txt",
+#ifdef RV_SOURCE_GAME_CONFIG
+            RV_SOURCE_GAME_CONFIG,
+#endif
+        };
+        for(const char* candidate:candidates) {
+            if(FileExists(candidate)) { configFile=candidate;break; }
+        }
     }
     if(!configFile.empty()) {
+        std::fprintf(stderr,"Using game config: %s\n",configFile.c_str());
         if(!LoadGameConfig(configFile,config)) return 1;
     } else if(argc>1) {
         // Backward-compatible positional arguments.
@@ -133,6 +142,7 @@ int main(int argc, char** argv) {
     const char* idlePath=config.idle.empty()?nullptr:config.idle.c_str();
     const char* walkingPath=config.walking.empty()?nullptr:config.walking.c_str();
     const char* jumpPath=config.jump.empty()?nullptr:config.jump.c_str();
+    std::fprintf(stderr,"Jump animation config: %s\n",jumpPath?jumpPath:"(none)");
     const char* enterPath=config.enterCar.empty()?nullptr:config.enterCar.c_str();
 
     InitWindow(1280,720,"racingcar - Luau raycast racing");
