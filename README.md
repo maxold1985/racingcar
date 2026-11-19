@@ -283,3 +283,25 @@ O jogo inicia no modo **a pé**. O componente `graphics/rv_player.hpp/.cpp` cont
 Um **ghost azul** marca a porta do motorista. Aproxime-se (até 1,7 m) e pressione **ESPAÇO** para entrar. Dentro do carro, WASD controla a direção/aceleração, ESPAÇO freia e **F** sai. Fora do carro, a simulação continua com freio aplicado. A câmera acompanha o personagem a pé e o veículo quando embarcado, preservando órbita e zoom.
 
 O ponto da porta está em coordenadas locais do carro: `doorLocal{-1.05f, 0.0f, 0.35f}` em `graphics/main.cpp`; ajuste-o ao GLB utilizado. O componente atual usa movimento cinemático sobre Y=0, sem colisões de cápsula, animação esquelética ou detecção de paredes. O modelo opcional é estático (sem playback de animação). 
+
+
+### Animações Mixamo FBX (Assimp)
+
+O componente `graphics/rv_animation.hpp/.cpp` importa personagem **FBX ou GLB com ossos** usando Assimp, carrega clips FBX separados e aplica deformação por skinning na CPU. `RVPlayer` seleciona automaticamente `Idle` (parado) e `Walking` (movendo). API:
+
+```cpp
+player.load("personagem.fbx");                  // malha + esqueleto
+player.loadAnimation("Idle", "Idle.fbx");
+player.loadAnimation("Walking", "Walking.fbx");
+player.loadAnimation("EnterCar", "EnterCar.fbx");
+player.playAnimation("Walking", true);          // loop
+player.playAnimation("EnterCar", false);        // uma vez; finished() sinaliza fim no componente RVAnimation
+```
+
+Argumentos do executável: **carro, script Luau, pavimento, personagem, Idle, Walking, EnterCar**:
+
+```powershell
+.\\racingcar_game "..\\..\\assets\\car retro.glb" "..\\..\\scripts\\racing_game.luau" "..\\..\\assets\\pavimento.webp" "..\\..\\assets\\personagem.fbx" "..\\..\\assets\\Idle.fbx" "..\\..\\assets\\Walking.fbx" "..\\..\\assets\\EnterCar.fbx"
+```
+
+Os arquivos devem usar **o mesmo esqueleto e os mesmos nomes de ossos**; no Mixamo, exporte o personagem **With Skin** e os clips adicionais **Without Skin**, sem alterar o rig. O carregamento de EnterCar está disponível, mas a entrada no carro ainda é instantânea; a reprodução visual da transição depende de conectar uma máquina de estados de embarque. Não há blend entre clips, root motion, colisão de cápsula ou suporte a todos os materiais/texturas FBX (o renderer de skinning atual usa material padrão). A importação via Assimp aumenta o tempo de configuração/compilação; também é possível apontar `ASSIMP_SOURCE_DIR` para uma cópia local.
