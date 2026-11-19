@@ -1,5 +1,6 @@
 #include "rv_animation.hpp"
 #include "raymath.h"
+#include "rlgl.h"
 #include <assimp/postprocess.h>
 #include <assimp/config.h>
 #include <assimp/material.h>
@@ -195,6 +196,90 @@ Texture2D loadAssimpTexture(const aiScene* scene,
     }
     return {};
 }
+// GLSL 330, raylib 5.5 OpenGL 3.3. Derivative-based TBN avoids stale
+// tangents when the character's vertices are CPU-skinned each frame.
+constexpr const char* pbrVertex=R"GLSL(
+#version 330
+in vec3 vertexPosition;
+in vec2 vertexTexCoord;
+in vec3 vertexNormal;
+in vec4 vertexColor;
+uniform mat4 mvp;
+uniform mat4 matModel;
+out vec3 worldPosition;
+out vec3 worldNormal;
+out vec2 uv;
+out vec4 tint;
+void main() {
+    vec4 world=matModel*vec4(vertexPosition,1.0);
+    worldPosition=world.xyz;
+    worldNormal=normalize(transpose(inverse(mat3(matModel)))*vertexNormal);
+    uv=vertexTexCoord;
+    tint=vertexColor;
+    gl_Position=mvp*vec4(vertexPosition,1.0);
+}
+)GLSL";
+constexpr const char* pbrFragment=R"GLSL(
+#version 330
+in vec3 worldPosition;
+in vec3 worldNormal;
+in vec2 uv;
+in vec4 tint;
+out vec4 finalColor;
+uniform sampler2D texture0;
+uniform sampler2D texture1;
+uniform sampler2D texture2;
+uniform sampler2D texture4;
+uniform vec4 colDiffuse;
+uniform vec3 viewPos;
+uniform int useNormalMap;
+uniform int useMetalMap;
+uniform int useRoughMap;
+const float PI=3.14159265359;
+vec3 surfaceNormal() {
+    vec3 n=normalize(worldNormal);
+    if(useNormalMap==0) return n;
+    vec3 dp1=dFdx(worldPosition),dp2=dFdy(worldPosition);
+    vec2 duv1=dFdx(uv),duv2=dFdy(uv);
+    float determinant=duv1.x*duv2.y-duv1.y*duv2.x;
+    if(abs(determinant)<1e-8) return n;
+    vec3 t=normalize((dp1*duv2.y-dp2*duv1.y)/determinant);
+    t=normalize(t-n*dot(n,t));
+    vec3 b=normalize(cross(n,t))*sign(determinant);
+    vec3 mapN=texture(texture2,uv).xyz*2.0-1.0;
+    return normalize(mat3(t,b,n)*mapN);
+}
+void main() {
+    vec4 base=texture(texture0,uv)*colDiffuse*tint;
+    if(base.a<0.05) discard;
+    vec3 albedo=pow(max(base.rgb,vec3(0.0)),vec3(2.2));
+    float metallic=useMetalMap!=0?texture(texture1,uv).r:0.0;
+    float roughness=useRoughMap!=0?texture(texture4,uv).r:0.7;
+    metallic=clamp(metallic,0.0,1.0);
+    roughness=clamp(roughness,0.08,1.0);
+    vec3 N=surfaceNormal();
+    vec3 V=normalize(viewPos-worldPosition);
+    vec3 L=normalize(vec3(-0.35,0.85,0.4));
+    vec3 H=normalize(V+L);
+    float NoL=max(dot(N,L),0.0),NoV=max(dot(N,V),0.001);
+    float NoH=max(dot(N,H),0.0),VoH=max(dot(V,H),0.0);
+    float a=roughness*roughness,a2=a*a;
+    float denom=NoH*NoH*(a2-1.0)+1.0;
+    float D=a2/(PI*denom*denom+1e-6);
+    float k=(roughness+1.0)*(roughness+1.0)/8.0;
+    float Gv=NoV/(NoV*(1.0-k)+k);
+    float Gl=NoL/(NoL*(1.0-k)+k);
+    vec3 F0=mix(vec3(0.04),albedo,metallic);
+    vec3 F=F0+(1.0-F0)*pow(1.0-VoH,5.0);
+    vec3 specular=(D*Gv*Gl*F)/(4.0*NoV*max(NoL,0.001)+1e-5);
+    vec3 diffuse=(1.0-F)*(1.0-metallic)*albedo/PI;
+    vec3 radiance=vec3(3.0);
+    vec3 color=(diffuse+specular)*radiance*NoL+albedo*0.12;
+    color=color/(color+vec3(1.0));
+    color=pow(color,vec3(1.0/2.2));
+    finalColor=vec4(color,base.a);
+}
+)GLSL";
 Channels getChannels(const aiAnimation* a) {
     Channels channels;
     if(a) for(unsigned i=0;i<a->mNumChannels;++i)
@@ -286,6 +371,20 @@ bool RVAnimation::loadCharacter(const char* path) {
             }
         }
         importedMaterials.push_back(material);
+    }
+    pbrShader_=LoadShaderFromMemory(pbrVertex,pbrFragment);
+    if(pbrShader_.id!=0 && pbrShader_.id!=rlGetShaderIdDefault()) {
+        pbrShader_.locs[SHADER_LOC_MAP_ALBEDO]=GetShaderLocation(pbrShader_,"texture0");
+        pbrShader_.locs[SHADER_LOC_MAP_METALNESS]=GetShaderLocation(pbrShader_,"texture1");
+        pbrShader_.locs[SHADER_LOC_MAP_NORMAL]=GetShaderLocation(pbrShader_,"texture2");
+        pbrShader_.locs[SHADER_LOC_MAP_ROUGHNESS]=GetShaderLocation(pbrShader_,"texture4");
+        pbrViewLocation_=GetShaderLocation(pbrShader_,"viewPos");
+        pbrNormalLocation_=GetShaderLocation(pbrShader_,"useNormalMap");
+        pbrMetalLocation_=GetShaderLocation(pbrShader_,"useMetalMap");
+        pbrRoughLocation_=GetShaderLocation(pbrShader_,"useRoughMap");
+    } else {
+        std::fprintf(stderr,"PBR shader unavailable; using default material shader\n");
+        pbrShader_={};
     }
     unsigned totalBones=0, skippedBones=0, fallbackOffsets=0;
     for(unsigned mi=0;mi<scene_->mNumMeshes;++mi) {
@@ -386,6 +485,7 @@ bool RVAnimation::loadCharacter(const char* path) {
             const Material& source=importedMaterials[src->mMaterialIndex];
             target.maps[MATERIAL_MAP_DIFFUSE].color=
                 source.maps[MATERIAL_MAP_DIFFUSE].color;
+            if(pbrShader_.id!=0) target.shader=pbrShader_;
             for(const int mapIndex:{MATERIAL_MAP_DIFFUSE,MATERIAL_MAP_NORMAL,
                                     MATERIAL_MAP_METALNESS,MATERIAL_MAP_ROUGHNESS})
                 target.maps[mapIndex].texture=source.maps[mapIndex].texture;
@@ -733,9 +833,24 @@ void RVAnimation::draw(Vector3 position,float yaw) const {
         Vector3{-center_.x*scale_,-center_.y*scale_,-center_.z*scale_},
         Vector3{0,1,0},yaw);
     const Vector3 origin=Vector3Add(position,offset);
-    for(const Part& part:parts_)
+    // Current OpenGL view matrix is valid inside BeginMode3D.
+    const Matrix cameraWorld=MatrixInvert(rlGetMatrixModelview());
+    const float eye[3]={cameraWorld.m12,cameraWorld.m13,cameraWorld.m14};
+    if(pbrShader_.id!=0 && pbrViewLocation_>=0)
+        SetShaderValue(pbrShader_,pbrViewLocation_,eye,SHADER_UNIFORM_VEC3);
+    for(const Part& part:parts_) {
+        if(pbrShader_.id!=0 && part.model.materialCount>0) {
+            const Material& material=part.model.materials[0];
+            const int normal=IsTextureValid(material.maps[MATERIAL_MAP_NORMAL].texture)?1:0;
+            const int metal=IsTextureValid(material.maps[MATERIAL_MAP_METALNESS].texture)?1:0;
+            const int rough=IsTextureValid(material.maps[MATERIAL_MAP_ROUGHNESS].texture)?1:0;
+            if(pbrNormalLocation_>=0) SetShaderValue(pbrShader_,pbrNormalLocation_,&normal,SHADER_UNIFORM_INT);
+            if(pbrMetalLocation_>=0) SetShaderValue(pbrShader_,pbrMetalLocation_,&metal,SHADER_UNIFORM_INT);
+            if(pbrRoughLocation_>=0) SetShaderValue(pbrShader_,pbrRoughLocation_,&rough,SHADER_UNIFORM_INT);
+        }
         DrawModelEx(part.model,origin,Vector3{0,1,0},yaw*RAD2DEG,
                     Vector3{scale_,scale_,scale_},WHITE);
+    }
 }
 void RVAnimation::unload() {
     for(Part& part:parts_) {
@@ -748,6 +863,8 @@ void RVAnimation::unload() {
     }
     for(Texture2D& texture:ownedTextures_) if(IsTextureValid(texture)) UnloadTexture(texture);
     ownedTextures_.clear();
+    if(pbrShader_.id!=0) UnloadShader(pbrShader_);
+    pbrShader_={};
     parts_.clear();targetBind_.clear();clips_.clear();active_.clear();
     scene_=nullptr;character_.reset();characterPath_.clear();modelValid_=false;
     time_=0;finished_=false;warnedInvalidPose_=false;
