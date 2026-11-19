@@ -1,5 +1,6 @@
 #include <assimp/matrix4x4.h>
 #include <assimp/vector3.h>
+#include <assimp/vector3.inl>
 #include <cmath>
 #include <cstdio>
 
