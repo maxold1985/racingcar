@@ -281,7 +281,7 @@ bool RVAnimation::loadCharacter(const char* path) {
     std::fprintf(stderr,
         "Animated character: %u meshes, %zu skinned parts, %u bones (%u unmatched), scale %.5f\n",
         scene_->mNumMeshes,parts_.size(),totalBones,skippedBones,scale_);
-    std::fprintf(stderr,"[FBX BIND] offsets requiring rest-pose fallback: %u/%u\\n",
+    std::fprintf(stderr,"[FBX BIND] offsets requiring rest-pose fallback: %u/%u\n",
                  fallbackOffsets,totalBones);
     return true;
 }
@@ -443,10 +443,10 @@ void RVAnimation::update(float dt) {
             [](const Deviation& a,const Deviation& b) {
                 return a.distance>b.distance;
             });
-        std::fprintf(stderr,"[FBX DIAG] tick=%.3f nodes=%zu\\n",
+        std::fprintf(stderr,"[FBX DIAG] tick=%.3f nodes=%zu\n",
                      tick,deviations.size());
         for(size_t i=0;i<std::min(size_t(12),deviations.size());++i)
-            std::fprintf(stderr,"[FBX DIAG] %s translation=%.3f scaleRatio=%.3f\\n",
+            std::fprintf(stderr,"[FBX DIAG] %s translation=%.3f scaleRatio=%.3f\n",
                 deviations[i].name.c_str(),deviations[i].distance,
                 deviations[i].ratio);
     }
