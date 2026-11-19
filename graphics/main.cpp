@@ -135,24 +135,24 @@ static void drawRoadTile(const CityInstance& instance) {
     const Color white{224,225,222,255};
     if (instance.model==10) {
         // Full-width intersection joins both perpendicular road corridors.
-        DrawCube({x,surfaceY,z},{cell,0.06f,halfRoad*2},asphalt);
-        DrawCube({x,surfaceY,z},{halfRoad*2,0.06f,cell},asphalt);
+        DrawCubeV({x,surfaceY,z},{cell,0.06f,halfRoad*2},asphalt);
+        DrawCubeV({x,surfaceY,z},{halfRoad*2,0.06f,cell},asphalt);
         // Four approach markings, positioned inside the intersection edges.
         for (int i=-1;i<=1;i++) {
             const float offset=i*2.7f;
-            DrawCube({x+offset,0.073f,z-6.6f},{1.3f,0.006f,0.25f},white);
-            DrawCube({x+offset,0.073f,z+6.6f},{1.3f,0.006f,0.25f},white);
-            DrawCube({x-6.6f,0.073f,z+offset},{0.25f,0.006f,1.3f},white);
-            DrawCube({x+6.6f,0.073f,z+offset},{0.25f,0.006f,1.3f},white);
+            DrawCubeV({x+offset,0.073f,z-6.6f},{1.3f,0.006f,0.25f},white);
+            DrawCubeV({x+offset,0.073f,z+6.6f},{1.3f,0.006f,0.25f},white);
+            DrawCubeV({x-6.6f,0.073f,z+offset},{0.25f,0.006f,1.3f},white);
+            DrawCubeV({x+6.6f,0.073f,z+offset},{0.25f,0.006f,1.3f},white);
         }
         return;
     }
     // Rotation 0 = road runs north/south (Z), 90 = east/west (X).
     const bool eastWest=std::abs(std::sin(instance.rotation*DEG2RAD))>0.5f;
-    DrawCube({x,surfaceY,z},
+    DrawCubeV({x,surfaceY,z},
         eastWest ? Vector3{cell,0.06f,halfRoad*2} : Vector3{halfRoad*2,0.06f,cell},asphalt);
     // Short dashed center line, with 1m gaps between adjacent tiles.
-    DrawCube({x,0.073f,z},
+    DrawCubeV({x,0.073f,z},
         eastWest ? Vector3{8.0f,0.006f,0.15f} : Vector3{0.15f,0.006f,8.0f},line);
 }
 static void drawCity(Vector3 cameraPosition) {
