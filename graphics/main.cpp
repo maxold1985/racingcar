@@ -200,7 +200,7 @@ int main(int argc, char** argv) {
                             wheel.draw(toRay(w.wheel_center),q,1.0f,DARKGRAY);
                         }
                         EndMode3D();
-                        DrawRectangle(10,10,550,154,Fade(BLACK,0.70f));
+                        DrawRectangle(10,10,670,200,Fade(BLACK,0.70f));
                         DrawText(TextFormat("Speed: %.1f km/h",state.speed_kmh),20,20,24,RAYWHITE);
                         DrawText("W/S accelerate/reverse  A/D steer  SPACE brake",20,54,16,RAYWHITE);
                         DrawText("ESC quit  |  model: GLB, glTF, OBJ, IQM",20,75,16,RAYWHITE);
@@ -209,6 +209,12 @@ int main(int argc, char** argv) {
                         DrawText(TextFormat("CONTACT: %d/%d wheels | rear driven grounded: %d/2",
                                             groundedCount,rv_vehicle_wheel_count(car),drivenGrounded),
                                  20,124,18,drivenGrounded>0?GREEN:ORANGE);
+                        DrawText(TextFormat("LUAU: throttle %.2f | brake %.2f | steer %.2f",
+                                            ctx.applied_throttle,ctx.applied_brake,ctx.applied_steer),
+                                 20,148,18,WHITE);
+                        DrawText(TextFormat("VM physics steps: %llu | focused: %s",
+                                            ctx.physics_steps,IsWindowFocused()?"YES":"NO"),
+                                 20,173,18,ctx.physics_steps>0?GREEN:RED);
                         DrawFPS(GetScreenWidth()-100,20);
                         EndDrawing();
                     }
