@@ -353,7 +353,16 @@ int main(int argc, char** argv) {
                     rv_vehicle_apply_upgrades(car,engineUpgrade,tireUpgrade,suspensionUpgrade);
                     const std::array<int,3> missionCrates{{1,2,4}};
                     const Vector3 garageZone{state.position.x,0.05f,state.position.z};
-                    const Vector3 deliveryZone{state.position.x+8.0f,0.05f,state.position.z+65.0f};
+                    // Each completed contract activates a new green destination.
+                    const std::array<Vector3,5> deliveryZones{{
+                        {state.position.x+8.0f,0.05f,state.position.z+65.0f},
+                        {state.position.x+105.0f,0.05f,state.position.z+35.0f},
+                        {state.position.x-85.0f,0.05f,state.position.z+115.0f},
+                        {state.position.x-120.0f,0.05f,state.position.z-75.0f},
+                        {state.position.x+75.0f,0.05f,state.position.z-125.0f}
+                    }};
+                    std::size_t deliveryIndex=0;
+                    Vector3 deliveryZone=deliveryZones[deliveryIndex];
                     auto missionCargo=[&]() {
                         int count=0;
                         for(int id:missionCrates) if(grabBoxes[id].stored) ++count;
@@ -616,6 +625,9 @@ int main(int argc, char** argv) {
                                 else std::fprintf(stderr,"Unable to save Cargo Run wallet\n");
                             }
                             removeMissionCargo();
+                            for(int id:missionCrates) grabBoxes[id].stored=false;
+                            deliveryIndex=(deliveryIndex+1)%deliveryZones.size();
+                            deliveryZone=deliveryZones[deliveryIndex];
                         }
                         // Right mouse button: cast a red ray and grab the nearest box.
                         // The ray is cast from the camera through the mouse cursor.
@@ -1012,13 +1024,14 @@ int main(int argc, char** argv) {
                             std::hypot(pos.x-enemyPosition.x,pos.z-enemyPosition.z),
                             enemyWaypoint+1),20,224,18,enemyChasing?RED:SKYBLUE);
                         DrawRectangle(10,260,555,108,Fade(BLACK,0.78f));
-                         DrawText(TextFormat("CARGO RUN - CONTRACT 001 | WALLET: $%d",wallet),
+                         DrawText(TextFormat("CARGO RUN - CONTRACT %03d | WALLET: $%d",
+                                             static_cast<int>(deliveryIndex+1),wallet),
                                   20,268,20,GOLD);
                          const char* missionLabel=
                              mission==Mission::Available?"N: ACCEPT DELIVERY CONTRACT":
                              mission==Mission::Pickup?"COLLECT CRATES 1, 2, 4 (RMB + Q)":
                              mission==Mission::Delivering?"DRIVE TO GREEN MARKER AND STOP":
-                             mission==Mission::Completed?"DELIVERY COMPLETE! N: RESTART":
+                             mission==Mission::Completed?"DELIVERY COMPLETE! NEW GREEN ZONE! N: NEXT":
                              "TIME EXPIRED! N: RETRY";
                          DrawText(missionLabel,20,294,18,RAYWHITE);
                          DrawText(TextFormat("Cargo %d/3 | Time %02d:%02d | Distance %.0f m",
