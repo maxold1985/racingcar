@@ -2,6 +2,7 @@
 #include "raymath.h"
 #include <assimp/postprocess.h>
 #include <assimp/vector3.inl>
+#include <assimp/matrix4x4.inl>
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
