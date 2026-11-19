@@ -34,6 +34,11 @@ local function spawnChunk(cx, cz)
             elseif roadX or roadZ then
                 CityWorld.add(id, 1, x, 0, z, if roadZ then 90 else 0)
             else
+                if (ix == 1 or ix == 5 or ix == 7 or ix == 11) and (iz % 2 == 0) then
+                    CityWorld.add(id, 7, x, 0, z, 0)
+                elseif (iz == 1 or iz == 5 or iz == 7 or iz == 11) and (ix % 2 == 0) then
+                    CityWorld.add(id, 7, x, 0, z, 90)
+                end
                 -- Leave the original garage/start area clear.
                 if math.abs(x) > 48 or math.abs(z) > 48 then
                     local n = hash(cx * 12 + ix, cz * 12 + iz, 1)
