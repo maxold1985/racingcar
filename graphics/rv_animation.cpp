@@ -61,8 +61,9 @@ bool RVAnimation::loadCharacter(const char* path) {
         unload();
         return false;
     }
-    aiVector3D low(std::numeric_limits<float>::max());
-    aiVector3D high(-std::numeric_limits<float>::max());
+    const float extreme=std::numeric_limits<float>::max();
+    aiVector3D low(extreme,extreme,extreme);
+    aiVector3D high(-extreme,-extreme,-extreme);
     for(unsigned mi=0;mi<scene_->mNumMeshes;++mi) {
         const aiMesh* src=scene_->mMeshes[mi];
         if(!src->mNumVertices || !src->mNumFaces) continue;
