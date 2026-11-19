@@ -22,6 +22,79 @@
 
 // The graphics demo uses a flat collision plane. A future scene loader must
 // replace this callback with mesh collision / BVH raycasts.
+
+#include <unordered_map>
+#include <memory>
+
+// Procedural city bridge. Luau owns chunk placement; the renderer owns GPU models.
+struct CityInstance { int chunk; int model; Vector3 position; float rotation; };
+static std::vector<CityInstance> cityInstances;
+static std::unordered_map<int, Model> cityModels;
+static std::unordered_map<int, bool> cityMissing;
+static const char* cityNames[] = {
+    "Street_2Lane", "Street_4WayIntersection", "Street_TIntersection",
+    "Building_Small_1", "Building_Medium_2_001", "Building_Large_2",
+    "Sidewalk_Straight_3m", "Sidewalk_Corner_Round_3m"
+};
+static std::string cityAssetDirectory = "assets/city";
+static int cityAdd(lua_State* L) {
+    int chunk = static_cast<int>(luaL_checkinteger(L,1));
+    int model = static_cast<int>(luaL_checkinteger(L,2));
+    if (model < 1 || model > 8) return luaL_error(L,"invalid city model ID");
+    if (cityInstances.size() >= 20000) return luaL_error(L,"city instance limit reached");
+    float x=static_cast<float>(luaL_checknumber(L,3));
+    float y=static_cast<float>(luaL_checknumber(L,4));
+    float z=static_cast<float>(luaL_checknumber(L,5));
+    float rotation=static_cast<float>(luaL_optnumber(L,6,0));
+    if (!std::isfinite(x)||!std::isfinite(y)||!std::isfinite(z)||!std::isfinite(rotation))
+        return luaL_error(L,"non-finite city transform");
+    cityInstances.push_back({chunk,model,{x,y,z},rotation});
+    return 0;
+}
+static int cityRemove(lua_State* L) {
+    int chunk=static_cast<int>(luaL_checkinteger(L,1));
+    cityInstances.erase(std::remove_if(cityInstances.begin(),cityInstances.end(),
+        [chunk](const CityInstance& v){return v.chunk==chunk;}),cityInstances.end());
+    return 0;
+}
+static void registerCity(lua_State* L) {
+    lua_createtable(L,0,2);
+    lua_pushcfunction(L,cityAdd,"add"); lua_setfield(L,-2,"add");
+    lua_pushcfunction(L,cityRemove,"remove"); lua_setfield(L,-2,"remove");
+    lua_setglobal(L,"CityWorld");
+}
+static void drawCity(Vector3 cameraPosition) {
+    for (const CityInstance& instance:cityInstances) {
+        const float dx=instance.position.x-cameraPosition.x;
+        const float dz=instance.position.z-cameraPosition.z;
+        if (dx*dx+dz*dz > 480.0f*480.0f) continue;
+        if (!cityModels.count(instance.model) && !cityMissing.count(instance.model)) {
+            const std::string file=cityAssetDirectory+"/"+cityNames[instance.model-1]+".glb";
+            if (FileExists(file.c_str())) {
+                Model model=LoadModel(file.c_str());
+                if (IsModelValid(model)) cityModels.emplace(instance.model,model);
+                else cityMissing[instance.model]=true;
+            } else cityMissing[instance.model]=true;
+        }
+        auto it=cityModels.find(instance.model);
+        if (it!=cityModels.end())
+            DrawModelEx(it->second,instance.position,{0,1,0},instance.rotation,{1,1,1},WHITE);
+    }
+}
+static void unloadCity() {
+    for (auto& item:cityModels) UnloadModel(item.second);
+    cityModels.clear(); cityMissing.clear(); cityInstances.clear();
+}
+static void updateCityScript(lua_State* L,Vector3 p) {
+    lua_getglobal(L,"cityUpdate");
+    if (!lua_isfunction(L,-1)) {lua_pop(L,1);return;}
+    lua_pushnumber(L,p.x);lua_pushnumber(L,p.z);
+    if (lua_pcall(L,2,0,0)!=0) {
+        std::fprintf(stderr,"City Luau error: %s\\n",lua_tostring(L,-1));
+        lua_pop(L,1);
+    }
+}
+
 static int ground_ray(void*, RVVec3 o, RVVec3 dir, float maxDistance, RVHit* hit) {
     if (dir.y >= -1e-6f) return 0;
     const float t = -o.y / dir.y;
@@ -205,6 +278,7 @@ int main(int argc, char** argv) {
         } else {
             luaL_openlibs(mainState);
             rv_register_luau(mainState,&ctx);
+            registerCity(mainState);
             luaL_sandbox(mainState);
             lua_State* L=lua_newthread(mainState); // rooted on mainState's stack
             luaL_sandboxthread(L);
@@ -213,6 +287,9 @@ int main(int argc, char** argv) {
             if (!loadScript(L,scriptPath)) {
                 status=1;
             } else {
+                // Optional procedural city: loaded after the vehicle script.
+                if (FileExists("scripts/city_generator.luau"))
+                    loadScript(L,"scripts/city_generator.luau");
                 const int vehicleId=readVehicleId(L);
                 auto it=ctx.vehicles.find(vehicleId);
                 if (it==ctx.vehicles.end()) {
@@ -575,6 +652,7 @@ int main(int argc, char** argv) {
                         if (steps==12 && accumulator>=fixedDt) accumulator=0; // avoid spiral of death
                         state=rv_vehicle_get_state(car);
                         const Vector3 pos=toRay(state.position);
+                        updateCityScript(L,player.insideCar ? pos : player.position());
                         const Quaternion orientation=toRay(state.orientation);
                         // Moving car also pushes an on-foot player out of overlap.
                         player.resolveCarCollision(pos,orientation,
@@ -964,6 +1042,7 @@ int main(int argc, char** argv) {
                         BeginDrawing();
                         ClearBackground(Color{125,180,220,255});
                         BeginMode3D(camera);
+                        drawCity(camera.position);
                         if (pavementLoaded) {
                             DrawModel(pavementModel,Vector3{0,-0.025f,0},1.0f,WHITE);
                         } else {
@@ -1190,6 +1269,7 @@ int main(int argc, char** argv) {
                 }
             }
             lua_close(mainState);
+            unloadCity();
         }
     }
     chassis.unload();
