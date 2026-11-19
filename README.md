@@ -305,3 +305,28 @@ Argumentos do executável: **carro, script Luau, pavimento, personagem, Idle, Wa
 ```
 
 Os arquivos devem usar **o mesmo esqueleto e os mesmos nomes de ossos**; no Mixamo, exporte o personagem **With Skin** e os clips adicionais **Without Skin**, sem alterar o rig. O carregamento de EnterCar está disponível, mas a entrada no carro ainda é instantânea; a reprodução visual da transição depende de conectar uma máquina de estados de embarque. Não há blend entre clips, root motion, colisão de cápsula ou suporte a todos os materiais/texturas FBX (o renderer de skinning atual usa material padrão). A importação via Assimp aumenta o tempo de configuração/compilação; também é possível apontar `ASSIMP_SOURCE_DIR` para uma cópia local.
+
+
+### Inicialização por arquivo TXT
+
+O executável agora lê `game.txt` automaticamente ao iniciar sem argumentos, tanto da raiz do projeto quanto de `build/Release`. Também aceita outro arquivo: `racingcar_game.exe "C:\\jogos\\minha_cena.txt"`. Os caminhos são resolvidos **relativamente à pasta do TXT**, não ao diretório atual. Exemplo:
+
+```ini
+car = "assets/car retro.glb"
+script = scripts/racing_game.luau
+pavement = assets/pavimento.webp
+character = assets/personagem.fbx
+idle = assets/Idle.fbx
+walking = assets/Walking.fbx
+enter_car = assets/EnterCar.fbx
+```
+
+`script` é obrigatório. Os demais podem ficar vazios (o carro usa geometria de fallback, o chão usa cor sólida e o personagem usa placeholder). Comentários começam com `#` ou `;`. Chaves desconhecidas e linhas malformadas produzem erro. Para compatibilidade, o formato antigo com argumentos posicionais continua funcionando quando o primeiro argumento não é um `.txt`.
+
+```powershell
+git pull origin mainn
+cmake -S . -B build -DRV_WITH_GRAPHICS=ON -DRV_WITH_LUAU=ON
+cmake --build build --config Release --parallel
+cd build\\Release
+.\\racingcar_game.exe
+```
