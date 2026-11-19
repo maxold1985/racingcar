@@ -262,6 +262,7 @@ int main(int argc, char** argv) {
                     Vector3 enemyPosition=patrol[0];
                     float enemyYaw=0.0f;
                     float enemySpeed=0.0f;
+                    float enemyReacquireCooldown=0.0f;
                     int enemyWaypoint=1;
                     bool enemyChasing=false;
                     bool localCirclePatrol=false;
@@ -296,6 +297,7 @@ int main(int argc, char** argv) {
                     constexpr float enemyPatrolSpeed=7.0f;
                     constexpr float enemyChaseSpeed=13.0f;
                     constexpr float enemyTurnRate=2.2f;
+                    constexpr float enemyCircleSpeed=5.5f;
                     auto normalizeAngle=[](float a) {
                         return std::atan2(std::sin(a),std::cos(a));
                     };
@@ -347,6 +349,19 @@ int main(int argc, char** argv) {
                     constexpr float missionLimit=480.0f;
                     float missionTime=missionLimit;
                     int missionReward=0;
+                    float cargoCondition=100.0f;
+                    float cargoImpactCooldown=0.0f;
+                    float previousVerticalSpeed=0.0f;
+                    float lastDeliveryDistance=65.0f;
+                    unsigned int contractNumber=1;
+                    // Deterministic PRNG, independent of the render frame rate.
+                    unsigned int deliverySeed=0xA53C9E17u;
+                    auto nextRandom=[&]() {
+                        deliverySeed^=deliverySeed<<13;
+                        deliverySeed^=deliverySeed>>17;
+                        deliverySeed^=deliverySeed<<5;
+                        return deliverySeed;
+                    };
                     // Persistent wallet: plain-text save next to the executable's working directory.
                     // Only non-negative, bounded balances are accepted from disk.
                     constexpr int maxWallet=100000000;
@@ -390,6 +405,21 @@ int main(int argc, char** argv) {
                     }};
                     std::size_t deliveryIndex=0;
                     Vector3 deliveryZone=deliveryZones[deliveryIndex];
+                    auto nextDeliveryZone=[&](Vector3 from) {
+                        constexpr float tau=6.2831853071795864769f;
+                        const float angle=tau*static_cast<float>(nextRandom()%10000u)/10000.0f;
+                        const float radius=65.0f+static_cast<float>(nextRandom()%116u);
+                        Vector3 candidate{from.x+std::cos(angle)*radius,0.05f,
+                                          from.z+std::sin(angle)*radius};
+                        // Keep destinations within the flat 1500m demo terrain.
+                        candidate.x=std::clamp(candidate.x,enemyOrigin.x-600.0f,
+                                              enemyOrigin.x+600.0f);
+                        candidate.z=std::clamp(candidate.z,enemyOrigin.z-600.0f,
+                                              enemyOrigin.z+600.0f);
+                        lastDeliveryDistance=std::hypot(candidate.x-from.x,
+                                                        candidate.z-from.z);
+                        return candidate;
+                    };
                     auto missionCargo=[&]() {
                         int count=0;
                         for(int id:missionCrates) if(grabBoxes[id].stored) ++count;
@@ -479,6 +509,9 @@ int main(int argc, char** argv) {
                             mission=Mission::Pickup;
                             missionTime=missionLimit;
                             missionReward=0;
+                            cargoCondition=100.0f;
+                            cargoImpactCooldown=0.0f;
+                            previousVerticalSpeed=0.0f;
                         }
                         if(mission==Mission::Pickup || mission==Mission::Delivering) {
                             missionTime=std::max(0.0f,missionTime-frame);
@@ -582,12 +615,16 @@ int main(int argc, char** argv) {
                             const Vector3 targetCar=toRay(state.position);
                             const float distance=std::hypot(
                                 targetCar.x-enemyPosition.x,targetCar.z-enemyPosition.z);
+                            enemyReacquireCooldown=std::max(0.0f,
+                                enemyReacquireCooldown-frame);
                             if(enemyChasing) {
                                 if(distance>enemyLoseRadius) {
                                     enemyChasing=false;
+                                    enemyReacquireCooldown=2.5f;
                                     buildCirclePatrol();
                                 }
-                            } else if(distance<enemyDetectRadius) {
+                            } else if(distance<enemyDetectRadius &&
+                                      enemyReacquireCooldown<=0.0f) {
                                 enemyChasing=true;
                             }
                             Vector3 target=enemyChasing?targetCar:
@@ -615,7 +652,8 @@ int main(int argc, char** argv) {
                                 enemyYaw+=std::clamp(delta,-enemyTurnRate*frame,
                                                          enemyTurnRate*frame);
                             }
-                            const float targetSpeed=enemyChasing?enemyChaseSpeed:enemyPatrolSpeed;
+                            const float targetSpeed=enemyChasing?enemyChaseSpeed:
+                                (localCirclePatrol?enemyCircleSpeed:enemyPatrolSpeed);
                             const float turnPenalty=std::clamp(
                                 1.0f-std::abs(normalizeAngle(
                                     std::atan2(dx,dz)-enemyYaw))/2.5f,0.25f,1.0f);
@@ -636,6 +674,11 @@ int main(int argc, char** argv) {
                             vehicleCondition=std::max(0.0f,vehicleCondition-
                                 std::clamp(enemySpeed*1.5f,5.0f,20.0f));
                             rv_vehicle_set_condition(car,vehicleCondition);
+                            if(mission==Mission::Delivering) {
+                                cargoCondition=std::max(0.0f,cargoCondition-
+                                    std::clamp(enemySpeed*1.25f,4.0f,18.0f));
+                                cargoImpactCooldown=1.0f;
+                            }
                             collisionCooldown=2.0f;
                             std::ofstream save(walletSavePath,std::ios::trunc);
                             if(save) save << wallet << '\n' << deliveryUpgrade << '\n'
@@ -644,14 +687,35 @@ int main(int argc, char** argv) {
                                           << vehicleCondition << '\n';
                         }
 
+                        // Damage fragile cargo from abrupt vertical impacts.
+                        // Only cargo loaded for an active delivery can be damaged.
+                        cargoImpactCooldown=std::max(0.0f,cargoImpactCooldown-frame);
+                        const float verticalSpeed=state.linear_velocity.y;
+                        if(mission==Mission::Delivering && missionCargo()==3 &&
+                           cargoImpactCooldown<=0.0f) {
+                            const float verticalDelta=std::abs(
+                                verticalSpeed-previousVerticalSpeed);
+                            if(verticalDelta>7.0f) {
+                                cargoCondition=std::max(0.0f,cargoCondition-
+                                    std::clamp((verticalDelta-7.0f)*2.5f,2.0f,20.0f));
+                                cargoImpactCooldown=1.0f;
+                            }
+                        }
+                        previousVerticalSpeed=verticalSpeed;
                         const float distanceToDelivery=std::hypot(
                             pos.x-deliveryZone.x,pos.z-deliveryZone.z);
                         if(mission==Mission::Delivering && missionCargo()==3 &&
                            distanceToDelivery<6.0f && player.insideCar &&
                            std::abs(state.speed_kmh)<5.0f) {
                             mission=Mission::Completed;
-                            const int baseReward=450+static_cast<int>(missionTime*0.15f);
-                            missionReward=baseReward*(100+deliveryUpgrade*10)/100;
+                            const int baseReward=450+
+                                static_cast<int>(lastDeliveryDistance*3.0f)+
+                                static_cast<int>(missionTime*0.15f);
+                            const int upgradedReward=baseReward*
+                                (100+deliveryUpgrade*10)/100;
+                            // Cargo integrity scales the payout from 40% to 100%.
+                            missionReward=static_cast<int>(upgradedReward*
+                                (0.40f+0.006f*cargoCondition));
                             wallet=std::min(maxWallet,wallet+missionReward);
                             {
                                 std::ofstream save(walletSavePath,std::ios::trunc);
@@ -663,8 +727,8 @@ int main(int argc, char** argv) {
                             }
                             removeMissionCargo();
                             for(int id:missionCrates) grabBoxes[id].stored=false;
-                            deliveryIndex=(deliveryIndex+1)%deliveryZones.size();
-                            deliveryZone=deliveryZones[deliveryIndex];
+                            deliveryZone=nextDeliveryZone(deliveryZone);
+                            ++contractNumber;
                         }
                         // Right mouse button: cast a red ray and grab the nearest box.
                         // The ray is cast from the camera through the mouse cursor.
@@ -1072,8 +1136,8 @@ int main(int argc, char** argv) {
                             localCirclePatrol?circleWaypoint+1:enemyWaypoint+1),
                             20,224,18,enemyChasing?RED:SKYBLUE);
                         DrawRectangle(10,260,555,108,Fade(BLACK,0.78f));
-                         DrawText(TextFormat("CARGO RUN - CONTRACT %03d | WALLET: $%d",
-                                             static_cast<int>(deliveryIndex+1),wallet),
+                         DrawText(TextFormat("CARGO RUN - CONTRACT %03u | WALLET: $%d",
+                                             contractNumber,wallet),
                                   20,268,20,GOLD);
                          const char* missionLabel=
                              mission==Mission::Available?"N: ACCEPT DELIVERY CONTRACT":
@@ -1093,27 +1157,31 @@ int main(int argc, char** argv) {
                                              vehicleCondition,40.0f+0.6f*vehicleCondition,
                                              65.0f+0.35f*vehicleCondition),
                                   20,365,18,vehicleCondition>40.0f?GREEN:RED);
+                         DrawText(TextFormat("CARGO CONDITION: %.0f%% | ROUTE: %.0f m | PAYOUT x%.0f%%",
+                                             cargoCondition,lastDeliveryDistance,
+                                             40.0f+0.6f*cargoCondition),
+                                  20,387,18,cargoCondition>=70.0f?GREEN:ORANGE);
                          if(atGarage) {
-                             DrawRectangle(10,395,620,170,Fade(BLACK,0.80f));
+                             DrawRectangle(10,415,620,170,Fade(BLACK,0.80f));
                              DrawText(TextFormat("GARAGE | Delivery bonus: +%d%%",deliveryUpgrade*10),
-                                      20,402,20,GOLD);
+                                      20,422,20,GOLD);
                              DrawText(TextFormat("1 Engine +12%%: $%d (Lv %d/3)",
                                       engineUpgrade<3?800*(engineUpgrade+1):0,engineUpgrade),
-                                      20,428,18,RAYWHITE);
+                                      20,448,18,RAYWHITE);
                              DrawText(TextFormat("2 Tires +8%% grip: $%d (Lv %d/3)",
                                       tireUpgrade<3?650*(tireUpgrade+1):0,tireUpgrade),
-                                      20,452,18,RAYWHITE);
+                                      20,472,18,RAYWHITE);
                              DrawText(TextFormat("3 Suspension +8%%: $%d (Lv %d/3)",
                                       suspensionUpgrade<3?700*(suspensionUpgrade+1):0,suspensionUpgrade),
-                                      20,476,18,RAYWHITE);
+                                      20,496,18,RAYWHITE);
                              if(deliveryUpgrade<3)
                                  DrawText(TextFormat("U: Upgrade delivery bonus (+10%%) - $%d",
                                                    upgradePrices[deliveryUpgrade]),
-                                          20,500,18,RAYWHITE);
-                             else DrawText("All delivery upgrades purchased",20,500,18,GREEN);
+                                          20,520,18,RAYWHITE);
+                             else DrawText("All delivery upgrades purchased",20,520,18,GREEN);
                              DrawText(TextFormat("4 Repair vehicle: $%d (Condition %.0f%%)",
                                                  repairCost,vehicleCondition),
-                                      20,524,18,vehicleCondition<100.0f?YELLOW:GREEN);
+                                      20,544,18,vehicleCondition<100.0f?YELLOW:GREEN);
                          }
                          DrawFPS(GetScreenWidth()-100,20);
                         EndDrawing();
