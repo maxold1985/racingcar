@@ -253,6 +253,38 @@ bool RVAnimation::loadCharacter(const char* path) {
                              i,path.C_Str());
             }
         }
+        // Additional PBR texture slots. raylib stores these maps, but its
+        // default shader only samples albedo; a PBR shader is required to
+        // render their lighting contributions.
+        struct MapRequest {
+            int slot;
+            aiTextureType primary;
+            aiTextureType fallback;
+            const char* label;
+        };
+        const MapRequest requests[]={
+            {MATERIAL_MAP_NORMAL,aiTextureType_NORMALS,aiTextureType_NORMAL_CAMERA,"normal"},
+            {MATERIAL_MAP_METALNESS,aiTextureType_METALNESS,aiTextureType_UNKNOWN,"metallic"},
+            {MATERIAL_MAP_ROUGHNESS,aiTextureType_DIFFUSE_ROUGHNESS,aiTextureType_UNKNOWN,"roughness"}
+        };
+        for(const MapRequest& request:requests) {
+            aiString mapPath;
+            if(source->GetTexture(request.primary,0,&mapPath)!=AI_SUCCESS &&
+               request.fallback!=aiTextureType_UNKNOWN)
+                source->GetTexture(request.fallback,0,&mapPath);
+            if(mapPath.length==0) continue;
+            Texture2D texture=loadAssimpTexture(scene_,
+                std::filesystem::u8path(characterPath_),mapPath);
+            if(IsTextureValid(texture)) {
+                material.maps[request.slot].texture=texture;
+                ownedTextures_.push_back(texture);
+                std::fprintf(stderr,"FBX material %u: loaded %s %s\n",
+                             i,request.label,mapPath.C_Str());
+            } else {
+                std::fprintf(stderr,"FBX material %u: missing %s %s\n",
+                             i,request.label,mapPath.C_Str());
+            }
+        }
         importedMaterials.push_back(material);
     }
     unsigned totalBones=0, skippedBones=0, fallbackOffsets=0;
@@ -354,15 +386,18 @@ bool RVAnimation::loadCharacter(const char* path) {
             const Material& source=importedMaterials[src->mMaterialIndex];
             target.maps[MATERIAL_MAP_DIFFUSE].color=
                 source.maps[MATERIAL_MAP_DIFFUSE].color;
-            target.maps[MATERIAL_MAP_DIFFUSE].texture=
-                source.maps[MATERIAL_MAP_DIFFUSE].texture;
+            for(const int mapIndex:{MATERIAL_MAP_DIFFUSE,MATERIAL_MAP_NORMAL,
+                                    MATERIAL_MAP_METALNESS,MATERIAL_MAP_ROUGHNESS})
+                target.maps[mapIndex].texture=source.maps[mapIndex].texture;
         }
         parts_.push_back(std::move(part));
     }
     // LoadMaterialDefault allocates only material metadata; free it without
     // unloading textures, which are owned by RVAnimation.
     for(Material& material:importedMaterials) {
-        material.maps[MATERIAL_MAP_DIFFUSE].texture={};
+        for(const int mapIndex:{MATERIAL_MAP_DIFFUSE,MATERIAL_MAP_NORMAL,
+                                MATERIAL_MAP_METALNESS,MATERIAL_MAP_ROUGHNESS})
+            material.maps[mapIndex].texture={};
         UnloadMaterial(material);
     }
     if(parts_.empty()) { unload();return false; }
@@ -706,7 +741,9 @@ void RVAnimation::unload() {
     for(Part& part:parts_) {
         // Prevent UnloadModel from unloading shared albedo textures.
         for(int i=0;i<part.model.materialCount;++i)
-            part.model.materials[i].maps[MATERIAL_MAP_DIFFUSE].texture={};
+            for(const int mapIndex:{MATERIAL_MAP_DIFFUSE,MATERIAL_MAP_NORMAL,
+                                    MATERIAL_MAP_METALNESS,MATERIAL_MAP_ROUGHNESS})
+                part.model.materials[i].maps[mapIndex].texture={};
         UnloadModel(part.model);
     }
     for(Texture2D& texture:ownedTextures_) if(IsTextureValid(texture)) UnloadTexture(texture);
