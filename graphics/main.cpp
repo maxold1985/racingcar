@@ -161,6 +161,15 @@ int main(int argc, char** argv) {
                         camera.position=Vector3Lerp(camera.position,wanted,0.08f);
                         camera.target=Vector3Lerp(camera.target,Vector3Add(pos,Vector3{0,0.6f,0}),0.15f);
 
+                        int groundedCount=0;
+                        int drivenGrounded=0;
+                        for (int i=0;i<rv_vehicle_wheel_count(car);++i) {
+                            const RVWheelState ws=rv_vehicle_get_wheel(car,i);
+                            if (ws.grounded) {
+                                ++groundedCount;
+                                if (i>=2) ++drivenGrounded; // demo: rear wheels 3 and 4
+                            }
+                        }
                         BeginDrawing();
                         ClearBackground(Color{125,180,220,255});
                         BeginMode3D(camera);
@@ -178,10 +187,15 @@ int main(int argc, char** argv) {
                             wheel.draw(toRay(w.wheel_center),q,1.0f,DARKGRAY);
                         }
                         EndMode3D();
-                        DrawRectangle(10,10,410,94,Fade(BLACK,0.65f));
+                        DrawRectangle(10,10,550,154,Fade(BLACK,0.70f));
                         DrawText(TextFormat("Speed: %.1f km/h",state.speed_kmh),20,20,24,RAYWHITE);
                         DrawText("W/S accelerate/reverse  A/D steer  SPACE brake",20,54,16,RAYWHITE);
                         DrawText("ESC quit  |  model: GLB, glTF, OBJ, IQM",20,75,16,RAYWHITE);
+                        DrawText(TextFormat("INPUT: throttle %.2f | brake %.2f | steer %.2f",
+                                            throttle,brake,steer),20,100,18,YELLOW);
+                        DrawText(TextFormat("CONTACT: %d/%d wheels | rear driven grounded: %d/2",
+                                            groundedCount,rv_vehicle_wheel_count(car),drivenGrounded),
+                                 20,124,18,drivenGrounded>0?GREEN:ORANGE);
                         DrawFPS(GetScreenWidth()-100,20);
                         EndDrawing();
                     }
