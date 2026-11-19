@@ -104,6 +104,9 @@ int main(int argc, char** argv) {
     const char* scriptPath=argc>2 ? argv[2] : RV_DEFAULT_GAME_SCRIPT;
     const char* pavementPath=argc>3 ? argv[3] : "..\\..\\assets\\pavimento.webp";
     const char* characterPath=argc>4 ? argv[4] : nullptr;
+    const char* idlePath=argc>5 ? argv[5] : nullptr;
+    const char* walkingPath=argc>6 ? argv[6] : nullptr;
+    const char* enterPath=argc>7 ? argv[7] : nullptr;
 
     InitWindow(1280,720,"racingcar - Luau raycast racing");
     if (!IsWindowReady()) return 1;
@@ -183,6 +186,10 @@ int main(int argc, char** argv) {
                     RVBodyState state=rv_vehicle_get_state(car);
                     RVPlayer player;
                     player.load(characterPath);
+                    if (idlePath) player.loadAnimation("Idle",idlePath);
+                    if (walkingPath) player.loadAnimation("Walking",walkingPath);
+                    if (enterPath) player.loadAnimation("EnterCar",enterPath);
+                    player.playAnimation("Idle",true);
                     player.spawn(Vector3Add(toRay(state.position),Vector3{-3.0f,0.0f,0.0f}));
                     // Driver door offset in vehicle-local coordinates; configurable per car model.
                     const Vector3 doorLocal{-1.05f,0.0f,0.35f};
