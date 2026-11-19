@@ -15,6 +15,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
+#include <vector>
 #include <sstream>
 #include <string>
 
@@ -246,6 +247,24 @@ int main(int argc, char** argv) {
                     float orbitDistance=9.0f;
                     Vector3 cameraFocus=Vector3Add(toRay(state.position),Vector3{0,0.6f,0});
 
+                    struct GrabBox {
+                        Vector3 position;
+                        Vector3 velocity{0,0,0};
+                        float size=0.85f;
+                    };
+                    std::vector<GrabBox> grabBoxes;
+                    // Spawn demo boxes on the ground near the car.
+                    for(int i=0;i<12;++i) {
+                        const int column=i%4, row=i/4;
+                        grabBoxes.push_back(GrabBox{
+                            Vector3{toRay(state.position).x+5.0f+column*1.8f,0.425f,toRay(state.position).z-2.0f+row*2.0f}
+                        });
+                    }
+                    int grabbedBox=-1;
+                    float grabDistance=5.0f;
+                    Vector3 grabEnd{0,0,0};
+                    bool showGrabRay=false;
+
                     while (!WindowShouldClose()) {
                         float frame=std::min(GetFrameTime(),0.1f);
                         accumulator+=frame;
@@ -311,7 +330,7 @@ int main(int argc, char** argv) {
                                                    chassis.collisionHalfExtents());
                         // Camera follows chassis position but not its pitch/roll.
                         // Mouse drag: orbit. Mouse wheel: distance. Home: reset view.
-                        if (IsMouseButtonDown(MOUSE_BUTTON_RIGHT)) {
+                        if (IsMouseButtonDown(MOUSE_BUTTON_MIDDLE)) {
                             const Vector2 delta=GetMouseDelta();
                             orbitYaw -= delta.x*0.005f;
                             orbitPitch=std::clamp(orbitPitch+delta.y*0.005f,-1.25f,1.25f);
@@ -338,6 +357,62 @@ int main(int argc, char** argv) {
                             std::sin(orbitPitch)*orbitDistance,
                             -std::cos(angle)*horizontal
                         });
+
+                        // Right mouse button: cast a red ray and grab the nearest box.
+                        // The ray is cast from the camera through the mouse cursor.
+                        const Ray grabRay=GetScreenToWorldRay(GetMousePosition(),camera);
+                        showGrabRay=IsMouseButtonDown(MOUSE_BUTTON_RIGHT) && !player.insideCar;
+                        if(showGrabRay && IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) {
+                            grabbedBox=-1;
+                            float nearest=25.0f;
+                            for(int i=0;i<static_cast<int>(grabBoxes.size());++i) {
+                                const GrabBox& box=grabBoxes[i];
+                                const float h=box.size*0.5f;
+                                const BoundingBox bounds{
+                                    Vector3{box.position.x-h,box.position.y-h,box.position.z-h},
+                                    Vector3{box.position.x+h,box.position.y+h,box.position.z+h}
+                                };
+                                const RayCollision hit=GetRayCollisionBox(grabRay,bounds);
+                                if(hit.hit && hit.distance<nearest) {
+                                    nearest=hit.distance;
+                                    grabbedBox=i;
+                                }
+                            }
+                            if(grabbedBox>=0) grabDistance=nearest;
+                        }
+                        if(IsMouseButtonReleased(MOUSE_BUTTON_RIGHT) || player.insideCar)
+                            grabbedBox=-1;
+                        grabEnd=Vector3Add(grabRay.position,
+                                           Vector3Scale(grabRay.direction,
+                                               grabbedBox>=0?grabDistance:25.0f));
+                        if(grabbedBox>=0) {
+                            // Smooth critically damped follow, clamped to the ground.
+                            GrabBox& held=grabBoxes[grabbedBox];
+                            Vector3 target=grabEnd;
+                            target.y=std::max(target.y,held.size*0.5f);
+                            const float stiffness=55.0f;
+                            const float damping=15.0f;
+                            Vector3 accel=Vector3Subtract(
+                                Vector3Scale(Vector3Subtract(target,held.position),stiffness),
+                                Vector3Scale(held.velocity,damping));
+                            held.velocity=Vector3Add(held.velocity,Vector3Scale(accel,frame));
+                            held.position=Vector3Add(held.position,
+                                                     Vector3Scale(held.velocity,frame));
+                        }
+                        for(int i=0;i<static_cast<int>(grabBoxes.size());++i) {
+                            if(i==grabbedBox) continue;
+                            GrabBox& box=grabBoxes[i];
+                            box.velocity.y-=18.0f*frame;
+                            box.position=Vector3Add(box.position,
+                                                     Vector3Scale(box.velocity,frame));
+                            const float floorY=box.size*0.5f;
+                            if(box.position.y<floorY) {
+                                box.position.y=floorY;
+                                if(box.velocity.y<0) box.velocity.y=0;
+                            }
+                            box.velocity.x*=std::exp(-4.0f*frame);
+                            box.velocity.z*=std::exp(-4.0f*frame);
+                        }
 
                         int groundedCount=0;
                         int drivenGrounded=0;
@@ -368,6 +443,16 @@ int main(int argc, char** argv) {
                             pos,Vector3{0.0f,-carVisualDrop,0.0f});
                         chassis.draw(carVisualPosition,orientation,1.0f,WHITE);
                         player.draw();
+                        for(int i=0;i<static_cast<int>(grabBoxes.size());++i) {
+                            const GrabBox& box=grabBoxes[i];
+                            const Color color=i==grabbedBox?ORANGE:Color{180,135,85,255};
+                            DrawCube(box.position,box.size,box.size,box.size,color);
+                            DrawCubeWires(box.position,box.size,box.size,box.size,DARKBROWN);
+                        }
+                        if(showGrabRay) {
+                            DrawLine3D(grabRay.position,grabEnd,RED);
+                            DrawSphere(grabEnd,0.07f,RED);
+                        }
                         if (!player.insideCar) {
                             const Vector3 marker=Vector3Add(door,Vector3{0,0.12f,0});
                             DrawCylinder(marker,0.62f,0.62f,0.06f,24,Fade(SKYBLUE,0.45f));
@@ -382,8 +467,8 @@ int main(int argc, char** argv) {
                         DrawText(TextFormat("Speed: %.1f km/h",state.speed_kmh),20,20,24,RAYWHITE);
                         DrawText(player.insideCar ?
                             "DRIVING: W/S accelerate | A/D steer | SPACE brake | F exit" :
-                            "ON FOOT: WASD move | SPACE jump | E enter car",20,54,16,RAYWHITE);
-                        DrawText("R reset | RMB orbit | Wheel zoom | HOME camera | ESC quit",20,75,16,RAYWHITE);
+                            "ON FOOT: WASD move | SPACE jump | E enter | RMB grab boxes",20,54,16,RAYWHITE);
+                        DrawText("R reset | MMB orbit | RMB red ray/grab | Wheel zoom | HOME camera | ESC quit",20,75,16,RAYWHITE);
                         DrawText(TextFormat("INPUT: throttle %.2f | brake %.2f | steer %.2f",
                                             throttle,brake,steer),20,100,18,YELLOW);
                         DrawText(TextFormat("CONTACT: %d/%d wheels | rear driven grounded: %d/2",
