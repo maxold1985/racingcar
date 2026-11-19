@@ -24,9 +24,27 @@ bool RVPlayer::playAnimation(const std::string& name,bool loop) {
 void RVPlayer::spawn(Vector3 position) {
     position_ = position;
     position_.y = 0.0f;
+    verticalVelocity_=0.0f;
+    grounded_=true;
 }
 void RVPlayer::update(float dt, const Camera3D& camera) {
     if (insideCar) return;
+    // Semi-implicit Euler jump with a single ground plane at Y=0.
+    constexpr float jumpSpeed=6.5f;
+    constexpr float gravity=18.0f;
+    if(grounded_ && IsKeyPressed(KEY_SPACE)) {
+        verticalVelocity_=jumpSpeed;
+        grounded_=false;
+    }
+    if(!grounded_) {
+        verticalVelocity_-=gravity*dt;
+        position_.y+=verticalVelocity_*dt;
+        if(position_.y<=0.0f) {
+            position_.y=0.0f;
+            verticalVelocity_=0.0f;
+            grounded_=true;
+        }
+    }
     Vector3 forward = Vector3Subtract(camera.target,camera.position);
     forward.y=0.0f;
     if (Vector3LengthSqr(forward)<0.0001f) forward=Vector3{0,0,1};
@@ -54,7 +72,7 @@ void RVPlayer::update(float dt, const Camera3D& camera) {
         }
     }
     animation_.update(dt);
-    position_.y=0.0f; // demo collision plane
+    // Vertical position is resolved by jump integration above.
 }
 // Player capsule approximated by a horizontal circle against the car OBB.
 // This is a kinematic contact: the vehicle physics is left untouched.
@@ -66,8 +84,8 @@ void RVPlayer::resolveCarCollision(Vector3 carPosition, Quaternion carRotation,
     constexpr float visualDrop=0.30f;
     // The GLB is drawn lower than the physical chassis.
     carPosition.y-=visualDrop;
-    if(carPosition.y+carHalfExtents.y<0.0f ||
-       carPosition.y-carHalfExtents.y>playerHeight) return;
+    if(carPosition.y+carHalfExtents.y<position_.y ||
+       carPosition.y-carHalfExtents.y>position_.y+playerHeight) return;
     const Quaternion inverse=QuaternionInvert(QuaternionNormalize(carRotation));
     Vector3 local=Vector3RotateByQuaternion(
         Vector3Subtract(position_,carPosition),inverse);
