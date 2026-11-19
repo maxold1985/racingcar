@@ -187,12 +187,9 @@ bool RVAnimation::loadCharacter(const char* path) {
             bone.targetBind=found->second;
             bone.targetBindInverse=found->second;
             bone.targetBindInverse.Inverse();
-            // Assimp bone offset maps mesh-local bind coordinates to bone-local.
-            // Vertices have already been baked into model space using meshBind.
-            // Therefore remove meshBind once, and never apply it twice.
-            aiMatrix4x4 inverseMesh=meshBind;
-            if(std::abs(inverseMesh.Determinant())>1e-12f) inverseMesh.Inverse();
-            bone.offsetInModelSpace=input->mOffsetMatrix*inverseMesh;
+            // Retain the importer offset for diagnostics; animation uses
+            // bind matrices from the matching node hierarchy instead.
+            bone.offsetInModelSpace=input->mOffsetMatrix;
             for(unsigned w=0;w<input->mNumWeights;++w) {
                 const auto& weight=input->mWeights[w];
                 if(weight.mVertexId<src->mNumVertices && weight.mWeight>0)
@@ -264,7 +261,7 @@ bool RVAnimation::loadClip(const std::string& name,const char* path) {
             clip.animation->mTicksPerSecond:25.0;
         clips_[name]=std::move(clip);
         std::fprintf(stderr,
-            "Animation %s: reusing character FBX skeleton and embedded clip\\n",
+            "Animation %s: reusing character FBX skeleton and embedded clip\n",
             name.c_str());
         return true;
     }
@@ -348,11 +345,11 @@ void RVAnimation::update(float dt) {
                 //
                 // Use root/model-space bind vertices for every mesh.
                 if(clip.sameSkeleton) {
-                    // Standard Assimp linear blend skinning:
-                    // boneGlobal(t) * mesh-local boneOffset * inverse(meshBind).
-                    // This uses the actual bind offset stored in the FBX, not
-                    // the node's rest transform (which can differ in FBX).
-                    skin=current->second*bone.offsetInModelSpace;
+                    // The rest global node matrix is the inverse bind for
+                    // vertices already baked into model-root coordinates.
+                    // This guarantees skin(rest) == identity, even when FBX
+                    // mOffsetMatrix includes geometric/pre-rotation transforms.
+                    skin=current->second*bone.targetBindInverse;
                 } else {
                     // Different FBX: source motion delta conjugated into the
                     // target character's bind coordinate system.
