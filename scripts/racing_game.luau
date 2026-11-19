@@ -49,7 +49,7 @@ function fixedUpdate(dt)
     local brake = input.brake
     local steer = input.steer
     -- Rate-limit steering to avoid instantaneous lateral tire impulses.
-    local maxChange = 3 * dt
+    local maxChange = 2.2 * dt
     smoothSteer += math.clamp(steer - smoothSteer, -maxChange, maxChange)
     Physics.setControls(car, throttle, brake, smoothSteer)
     Physics.step(car, dt)
