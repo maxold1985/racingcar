@@ -173,3 +173,46 @@ O Luau fornece `vector.dot`, `vector.cross`, `vector.normalize` e operações ar
 **Testes:** no ambiente Linux, `cmake -DRV_WITH_LUAU=OFF`, build e CTest passaram (2/2: `vehicle_core` e `vector_operators`). A nova integração com a VM Luau foi conferida contra a API oficial e passou na checagem sintática C++ isolada, mas **não foi executada contra a VM Luau real neste ambiente**.
 
 Fonte da API vetorial Luau: https://luau.org/library/
+
+
+## Motor gráfico 3D e leitor de modelos (raylib 5.5)
+
+O projeto agora contém um **host gráfico 3D** opcional baseado em raylib/OpenGL 3.3, executando o **script Luau real** a cada passo de física. Os arquivos são:
+
+- `graphics/main.cpp`: janela 3D, câmera de perseguição, teclado, loop fixo de 120 Hz, sincronização com a física e desenho das quatro rodas.
+- `graphics/rv_model.hpp` e `graphics/rv_model.cpp`: leitor RAII de modelos 3D e geração de malhas substitutas quando não há arquivo.
+- `scripts/racing_game.luau`: cria o carro, rodas e implementa `fixedUpdate(dt)` usando os controles fornecidos pelo host.
+
+### Compilar e executar (Windows / Visual Studio 2022)
+
+```powershell
+git pull
+.\build-windows.ps1 -Graphics
+.\build\Release\racingcar_game.exe
+```
+
+Para abrir seu próprio modelo:
+
+```powershell
+.\build\Release\racingcar_game.exe "C:\meus_modelos\carro.glb"
+```
+
+Para carregar modelo e script personalizado:
+
+```powershell
+.\build\Release\racingcar_game.exe "C:\meus_modelos\carro.glb" "C:\meus_scripts\corrida.luau"
+```
+
+Se preferir dependências já clonadas:
+
+```powershell
+.\build-windows.ps1 -Graphics -LuauSourceDir "C:\src\luau" -RaylibSourceDir "C:\src\raylib"
+```
+
+**Controles:** W/S ou setas cima/baixo para acelerar/reverter; A/D ou setas esquerda/direita para direção; espaço para frear; ESC para sair. Sem arquivo de modelo, a engine gera um carro retangular e rodas cilíndricas. A pista padrão é um plano infinito Y=0.
+
+**Formatos de modelo:** GLB, glTF, OBJ e IQM, conforme os carregadores do raylib. Para GLTF/OBJ com arquivos auxiliares, mantenha as texturas e os arquivos referenciados no caminho relativo correto. O modelo deve estar em metros, com +Y para cima e +Z para frente. O mesh da carroceria deve estar centrado no centro de massa, sem rodas incorporadas (ou elas aparecerão duplicadas). As rodas são geradas pela engine e animadas separadamente.
+
+**Escopo atual:** o leitor importa geometria e materiais para **renderização**, não constrói automaticamente colisores físicos a partir do modelo. O raycast do exemplo ainda é feito sobre o plano Y=0. A biblioteca não inclui editor visual, animação esquelética, carregamento de cenas completas, sombras dinâmicas ou colisões entre veículos. Para circuitos reais, substitua `ground_ray()` por raycast em BVH/malha de colisão da pista.
+
+**Validação:** os testes do núcleo C/C++ continuam disponíveis via `ctest`; a compilação e execução do novo alvo gráfico com dependências reais ainda devem ser verificadas no ambiente Windows do usuário. Dependências externas são obtidas pelo CMake FetchContent, e nenhuma delas foi copiada para o repositório.
