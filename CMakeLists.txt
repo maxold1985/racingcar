@@ -129,7 +129,8 @@ if(RV_WITH_GRAPHICS)
         "${luau_SOURCE_DIR}/Compiler/include")
     target_link_libraries(racingcar_game PRIVATE raycast_vehicle_static raylib webpdecoder assimp::assimp Luau.VM Luau.Compiler)
     target_compile_definitions(racingcar_game PRIVATE
-        RV_DEFAULT_GAME_SCRIPT="${CMAKE_CURRENT_SOURCE_DIR}/scripts/racing_game.luau")
+        RV_DEFAULT_GAME_SCRIPT="${CMAKE_CURRENT_SOURCE_DIR}/scripts/racing_game.luau"
+        RV_SOURCE_GAME_CONFIG="${CMAKE_CURRENT_SOURCE_DIR}/game.txt")
     # Headless mathematical test; no window or character asset is required.
     add_executable(rv_skinning_matrix_tests tests/test_skinning_bind.cpp)
     target_link_libraries(rv_skinning_matrix_tests PRIVATE assimp::assimp)
