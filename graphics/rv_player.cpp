@@ -56,6 +56,44 @@ void RVPlayer::update(float dt, const Camera3D& camera) {
     animation_.update(dt);
     position_.y=0.0f; // demo collision plane
 }
+// Player capsule approximated by a horizontal circle against the car OBB.
+// This is a kinematic contact: the vehicle physics is left untouched.
+void RVPlayer::resolveCarCollision(Vector3 carPosition, Quaternion carRotation,
+                                   Vector3 carHalfExtents) {
+    if(insideCar) return;
+    constexpr float playerRadius=0.30f;
+    constexpr float playerHeight=1.75f;
+    constexpr float visualDrop=0.30f;
+    // The GLB is drawn lower than the physical chassis.
+    carPosition.y-=visualDrop;
+    if(carPosition.y+carHalfExtents.y<0.0f ||
+       carPosition.y-carHalfExtents.y>playerHeight) return;
+    const Quaternion inverse=QuaternionInvert(QuaternionNormalize(carRotation));
+    Vector3 local=Vector3RotateByQuaternion(
+        Vector3Subtract(position_,carPosition),inverse);
+    const float cx=std::clamp(local.x,-carHalfExtents.x,carHalfExtents.x);
+    const float cz=std::clamp(local.z,-carHalfExtents.z,carHalfExtents.z);
+    const float dx=local.x-cx,dz=local.z-cz;
+    const float distSq=dx*dx+dz*dz;
+    if(distSq>=playerRadius*playerRadius) return;
+    if(distSq>1e-8f) {
+        const float distance=std::sqrt(distSq);
+        local.x+=(dx/distance)*(playerRadius-distance);
+        local.z+=(dz/distance)*(playerRadius-distance);
+    } else {
+        // Inside the OBB: push through the nearest side, not the vehicle.
+        const float xPen=carHalfExtents.x+playerRadius-std::abs(local.x);
+        const float zPen=carHalfExtents.z+playerRadius-std::abs(local.z);
+        if(xPen<zPen) local.x=(local.x>=0?1.0f:-1.0f)*
+                                 (carHalfExtents.x+playerRadius);
+        else local.z=(local.z>=0?1.0f:-1.0f)*
+                           (carHalfExtents.z+playerRadius);
+    }
+    const Vector3 corrected=Vector3Add(carPosition,
+        Vector3RotateByQuaternion(local,carRotation));
+    position_.x=corrected.x;
+    position_.z=corrected.z;
+}
 void RVPlayer::draw() const {
     if (insideCar) return;
     const Vector3 center=Vector3Add(position_,Vector3{0,0.9f,0});
