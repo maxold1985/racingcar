@@ -256,3 +256,17 @@ O leitor `RVModel::load()` usa `LoadModel()` do raylib 5.5, que já importa malh
 Para GLB, as texturas normalmente ficam incorporadas no arquivo; para glTF com arquivos externos, mantenha os recursos relativos próximos ao arquivo principal. O renderer padrão do raylib **não é um pipeline PBR completo**: mapas normal/metallic/roughness podem ser importados mas exigem shaders próprios para que seus efeitos sejam efetivamente renderizados. A implementação atual preserva o material e a textura base (albedo), sem prometer iluminação PBR, transparência avançada ou suporte a todas as extensões glTF.
 
 Atualize e recompile: `git pull origin mainn` e `cmake --build build --config Release --parallel`.
+
+
+### Textura WebP do pavimento
+
+O jogo carrega automaticamente `..\\..\\assets\\pavimento.webp` quando executado a partir de `build\\Release`. A imagem é decodificada pela biblioteca **libwebp** (raylib 5.5 não decodifica WebP nativamente), enviada à GPU como textura RGBA e repetida a cada 5 metros no chão de 1500 × 1500 metros. O raycast continua usando Y=0.
+
+```powershell
+git pull origin mainn
+.\\build-windows.ps1 -Graphics
+cd build\\Release
+.\\racingcar_game "..\\..\\assets\\car retro.glb"
+```
+
+O terceiro argumento permite alterar a textura: `racingcar_game.exe "car.glb" "script.luau" "pavimento.webp"`. Para compilar offline com libwebp já baixada, configure `-DWEBP_SOURCE_DIR=C:/src/libwebp`. Se a imagem não existir ou for inválida, o jogo usa o chão verde original.
