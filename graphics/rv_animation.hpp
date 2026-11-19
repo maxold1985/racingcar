@@ -44,7 +44,7 @@ private:
         const aiAnimation* animation=nullptr;
         std::unordered_map<std::string, const aiNodeAnim*> channels;
         Pose sourceBind;                     // source's own rest hierarchy
-        aiMatrix4x4 sourceRootInverse;
+        Pose sourceBindInverse;              // inverted once at import
         double duration=0.0;
         double ticksPerSecond=25.0;
     };
