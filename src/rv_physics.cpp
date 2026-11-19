@@ -136,13 +136,25 @@ int rv_vehicle_step(RVVehicle* v, float dt, RVRaycastFn raycast, void* user) {
     if (!v || !raycast || !isfinite(dt) || dt<=0 || dt>1.0f/30.0f || v->count==0) return -1;
     RVBodyState* body=&v->body;
     RVVec3 up=norm(rotate(body->orientation,v3(0,1,0)));
-    RVVec3 down=-up;
+    // Raycasts follow world gravity, not chassis roll/pitch: wheels must keep
+    // searching for the floor when the body leans during steering.
+    RVVec3 ground_up=v3(0,1,0);
+    RVVec3 down=-ground_up;
     RVVec3 chassis_forward=norm(rotate(body->orientation,v3(0,0,1)));
     RVVec3 net= v3(0,-v->cfg.mass*v->cfg.gravity,0);
     RVVec3 torque=v3(0,0,0);
     float speed=length3(body->velocity);
     net += body->velocity * (-v->cfg.linear_drag * speed);
     torque -= body->angular_velocity * v->cfg.angular_drag;
+    // Roll/pitch stabilization only while near the ground. A conventional
+    // suspension's anti-roll bar alone cannot right a chassis that loses
+    // wheel contact. This is a game-oriented upright assist.
+    const RVVec3 tilt_axis=cross(up,ground_up);
+    const float tilt_strength=18000.0f;
+    const float tilt_damping=4500.0f;
+    const RVVec3 tilt_rate=body->angular_velocity -
+        ground_up*dot(body->angular_velocity,ground_up);
+    torque += tilt_axis*tilt_strength - tilt_rate*tilt_damping;
 
     int driven_count=0;
     for (int i=0; i<v->count; ++i) if (v->wheels[i].desc.driven) ++driven_count;
@@ -169,7 +181,7 @@ int rv_vehicle_step(RVVehicle* v, float dt, RVRaycastFn raycast, void* user) {
         // after shallow ground penetration. The effective distance remains
         // relative to the original mount, not the elevated ray origin.
         const float recovery = d->max_length + d->radius;
-        const RVVec3 ray_origin = mount + up * recovery;
+        const RVVec3 ray_origin = mount + ground_up * recovery;
         const float ray_length = 2.0f * recovery;
         RVHit hit; memset(&hit,0,sizeof(hit));
         if (!raycast(user,ray_origin,down,ray_length,&hit) ||
@@ -178,7 +190,7 @@ int rv_vehicle_step(RVVehicle* v, float dt, RVRaycastFn raycast, void* user) {
         const float effective_distance = hit.distance - recovery;
         if (effective_distance > d->max_length+d->radius) continue;
         RVVec3 n=norm(hit.normal);
-        if (dot(n,up)<0.05f) continue;
+        if (dot(n,ground_up)<0.5f) continue;
         s->grounded=1;
         w->ground_velocity=hit.ground_velocity;
         s->contact_point=hit.point;
@@ -210,7 +222,7 @@ int rv_vehicle_step(RVVehicle* v, float dt, RVRaycastFn raycast, void* user) {
         RVWheelDesc* d=&w->desc; RVWheelState* s=&w->state;
         if (!s->grounded) continue;
         RVVec3 mount=body->position + rotate(body->orientation, d->mount);
-        RVVec3 susp_force=up * s->suspension_force;
+        RVVec3 susp_force=ground_up * s->suspension_force;
         add_at(susp_force,mount,body->position,&net,&torque);
         float a=s->steer_radians;
         RVVec3 raw_forward=chassis_forward * cosf(a) + rotate(body->orientation, v3(1,0,0)) * sinf(a);
@@ -226,7 +238,7 @@ int rv_vehicle_step(RVVehicle* v, float dt, RVRaycastFn raycast, void* user) {
         f_long+=clampf(desired_brake,-brake_max,brake_max);
         f_long-=d->rolling_resistance*s->longitudinal_speed;
         float f_lat=-d->lateral_stiffness*s->lateral_speed;
-        float normal_load=s->suspension_force*clampf(dot(up,s->contact_normal),0,1);
+        float normal_load=s->suspension_force*clampf(dot(ground_up,s->contact_normal),0,1);
         float max_grip=d->friction*normal_load;
         float magnitude=sqrtf(f_long*f_long+f_lat*f_lat);
         if (magnitude>max_grip && magnitude>RV_EPS) {
@@ -248,6 +260,10 @@ int rv_vehicle_step(RVVehicle* v, float dt, RVRaycastFn raycast, void* user) {
     RVVec3 rhs=local_tau - cross(local_w, Iw);
     RVVec3 local_alpha=v3(rhs.x/v->cfg.inertia.x,rhs.y/v->cfg.inertia.y,rhs.z/v->cfg.inertia.z);
     body->angular_velocity += rotate(body->orientation, local_alpha) * dt;
+    // Prevent an impulse from causing runaway angular velocity in the
+    // simplified tire model. 3 rad/s is enough for responsive arcade turns.
+    const float angular_speed=length3(body->angular_velocity);
+    if (angular_speed>3.0f) body->angular_velocity *= 3.0f/angular_speed;
     RVQuat omega={body->angular_velocity.x,body->angular_velocity.y,body->angular_velocity.z,0};
     RVQuat qdot=quat_mul(omega,body->orientation);
     body->orientation=quat_norm(RVQuat{
