@@ -324,6 +324,7 @@ int main(int argc, char** argv) {
                     // Only non-negative, bounded balances are accepted from disk.
                     constexpr int maxWallet=100000000;
                     int wallet=0;
+                    int engineUpgrade=0, tireUpgrade=0, suspensionUpgrade=0;
                     int deliveryUpgrade=0; // 0..3, permanent payout upgrade
                     constexpr int upgradePrices[3]={600,1200,2400};
                     const char* walletSavePath="cargo_run_save.txt";
@@ -335,7 +336,13 @@ int main(int argc, char** argv) {
                         int level=0;
                         if(save >> level && level>=0 && level<=3)
                             deliveryUpgrade=level;
+                        int e=0,t=0,s=0;
+                        if(save >> e >> t >> s && e>=0 && e<=3 &&
+                           t>=0 && t<=3 && s>=0 && s<=3) {
+                            engineUpgrade=e; tireUpgrade=t; suspensionUpgrade=s;
+                        }
                     }
+                    rv_vehicle_apply_upgrades(car,engineUpgrade,tireUpgrade,suspensionUpgrade);
                     const std::array<int,3> missionCrates{{1,2,4}};
                     const Vector3 garageZone{state.position.x,0.05f,state.position.z};
                     const Vector3 deliveryZone{state.position.x+8.0f,0.05f,state.position.z+65.0f};
@@ -374,12 +381,30 @@ int main(int argc, char** argv) {
                         const bool atGarage=!player.insideCar &&
                             std::hypot(garagePlayerPosition.x-garageZone.x,
                                        garagePlayerPosition.z-garageZone.z)<8.0f;
+                        const auto saveGarage=[&]() {
+                            std::ofstream save(walletSavePath,std::ios::trunc);
+                            if(save) save << wallet << '\n' << deliveryUpgrade << '\n'
+                                          << engineUpgrade << ' ' << tireUpgrade << ' '
+                                          << suspensionUpgrade << '\n';
+                        };
+                        const auto purchaseUpgrade=[&](int& level,int price) {
+                            if(!atGarage || level>=3 || wallet<price) return;
+                            wallet-=price;
+                            ++level;
+                            rv_vehicle_apply_upgrades(car,engineUpgrade,tireUpgrade,suspensionUpgrade);
+                            saveGarage();
+                        };
+                        if(atGarage && IsKeyPressed(KEY_ONE))
+                            purchaseUpgrade(engineUpgrade,800*(engineUpgrade+1));
+                        if(atGarage && IsKeyPressed(KEY_TWO))
+                            purchaseUpgrade(tireUpgrade,650*(tireUpgrade+1));
+                        if(atGarage && IsKeyPressed(KEY_THREE))
+                            purchaseUpgrade(suspensionUpgrade,700*(suspensionUpgrade+1));
                         if(atGarage && IsKeyPressed(KEY_U) && deliveryUpgrade<3 &&
                            wallet>=upgradePrices[deliveryUpgrade]) {
                             wallet-=upgradePrices[deliveryUpgrade];
                             ++deliveryUpgrade;
-                            std::ofstream save(walletSavePath,std::ios::trunc);
-                            if(save) save << wallet << '\n' << deliveryUpgrade << '\n';
+                            saveGarage();
                         }
                         if(IsKeyPressed(KEY_N) &&
                            (mission==Mission::Available || mission==Mission::Completed ||
@@ -546,7 +571,9 @@ int main(int argc, char** argv) {
                             wallet=std::min(maxWallet,wallet+missionReward);
                             {
                                 std::ofstream save(walletSavePath,std::ios::trunc);
-                                if(save) save << wallet << '\n' << deliveryUpgrade << '\n';
+                                if(save) save << wallet << '\n' << deliveryUpgrade << '\n'
+                                              << engineUpgrade << ' ' << tireUpgrade << ' '
+                                              << suspensionUpgrade << '\n';
                                 else std::fprintf(stderr,"Unable to save Cargo Run wallet\n");
                             }
                             removeMissionCargo();
@@ -963,14 +990,23 @@ int main(int argc, char** argv) {
                              DrawText(TextFormat("REWARD: $%d",missionReward),20,342,18,GREEN);
                          else DrawText("N contract | Q store | F exit | TAB inventory",20,342,16,LIGHTGRAY);
                          if(atGarage) {
-                             DrawRectangle(10,385,560,62,Fade(BLACK,0.80f));
+                             DrawRectangle(10,375,620,145,Fade(BLACK,0.80f));
                              DrawText(TextFormat("GARAGE | Delivery bonus: +%d%%",deliveryUpgrade*10),
-                                      20,392,20,GOLD);
+                                      20,382,20,GOLD);
+                             DrawText(TextFormat("1 Engine +12%%: $%d (Lv %d/3)",
+                                      engineUpgrade<3?800*(engineUpgrade+1):0,engineUpgrade),
+                                      20,408,18,RAYWHITE);
+                             DrawText(TextFormat("2 Tires +8%% grip: $%d (Lv %d/3)",
+                                      tireUpgrade<3?650*(tireUpgrade+1):0,tireUpgrade),
+                                      20,432,18,RAYWHITE);
+                             DrawText(TextFormat("3 Suspension +8%%: $%d (Lv %d/3)",
+                                      suspensionUpgrade<3?700*(suspensionUpgrade+1):0,suspensionUpgrade),
+                                      20,456,18,RAYWHITE);
                              if(deliveryUpgrade<3)
                                  DrawText(TextFormat("U: Upgrade delivery bonus (+10%%) - $%d",
                                                    upgradePrices[deliveryUpgrade]),
-                                          20,419,18,RAYWHITE);
-                             else DrawText("All delivery upgrades purchased",20,419,18,GREEN);
+                                          20,480,18,RAYWHITE);
+                             else DrawText("All delivery upgrades purchased",20,480,18,GREEN);
                          }
                          DrawFPS(GetScreenWidth()-100,20);
                         EndDrawing();
