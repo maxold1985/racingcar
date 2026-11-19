@@ -1,5 +1,6 @@
 #include "rv_model.hpp"
 #include "rv_player.hpp"
+#include "rv_game_config.hpp"
 #include "webp_texture.hpp"
 #include "rv_luau.h"
 #include "rv_physics.h"
@@ -100,13 +101,37 @@ static int readVehicleId(lua_State* L) {
 #endif
 
 int main(int argc, char** argv) {
-    const char* chassisPath=argc>1 ? argv[1] : nullptr;
-    const char* scriptPath=argc>2 ? argv[2] : RV_DEFAULT_GAME_SCRIPT;
-    const char* pavementPath=argc>3 ? argv[3] : "..\\..\\assets\\pavimento.webp";
-    const char* characterPath=argc>4 ? argv[4] : nullptr;
-    const char* idlePath=argc>5 ? argv[5] : nullptr;
-    const char* walkingPath=argc>6 ? argv[6] : nullptr;
-    const char* enterPath=argc>7 ? argv[7] : nullptr;
+    RVGameConfig config;
+    std::string configFile;
+    if(argc>1 && IsFileExtension(argv[1],".txt")) {
+        configFile=argv[1];
+    } else if(argc==1) {
+        // Works both from repository root and build/Release.
+        if(FileExists("game.txt")) configFile="game.txt";
+        else if(FileExists("../../game.txt")) configFile="../../game.txt";
+    }
+    if(!configFile.empty()) {
+        if(!LoadGameConfig(configFile,config)) return 1;
+    } else if(argc>1) {
+        // Backward-compatible positional arguments.
+        config.car=argv[1];
+        config.script=argc>2?argv[2]:RV_DEFAULT_GAME_SCRIPT;
+        config.pavement=argc>3?argv[3]:"../../assets/pavimento.webp";
+        if(argc>4) config.character=argv[4];
+        if(argc>5) config.idle=argv[5];
+        if(argc>6) config.walking=argv[6];
+        if(argc>7) config.enterCar=argv[7];
+    } else {
+        std::fprintf(stderr,"No game.txt found; run from repository root or build/Release.\n");
+        return 1;
+    }
+    const char* chassisPath=config.car.empty()?nullptr:config.car.c_str();
+    const char* scriptPath=config.script.c_str();
+    const char* pavementPath=config.pavement.c_str();
+    const char* characterPath=config.character.empty()?nullptr:config.character.c_str();
+    const char* idlePath=config.idle.empty()?nullptr:config.idle.c_str();
+    const char* walkingPath=config.walking.empty()?nullptr:config.walking.c_str();
+    const char* enterPath=config.enterCar.empty()?nullptr:config.enterCar.c_str();
 
     InitWindow(1280,720,"racingcar - Luau raycast racing");
     if (!IsWindowReady()) return 1;
