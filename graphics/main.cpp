@@ -702,14 +702,24 @@ int main(int argc, char** argv) {
                             DrawText("INVENTORY 4x2",left,top-37,20,RAYWHITE);
                             const Vector2 mouse=GetMousePosition();
                             if(IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-                                selectedItem=-1;
+                                int clickedItem=-1;
                                 for(int i=static_cast<int>(inventory.size())-1;i>=0;--i) {
                                     const InventoryItem& item=inventory[i];
                                     const Rectangle rect{
                                         float(left+item.x*cell),float(top+item.y*cell),
                                         float(item.w*cell),float(item.h*cell)};
                                     if(CheckCollisionPointRec(mouse,rect)) {
-                                        selectedItem=i;break;
+                                        clickedItem=i;break;
+                                    }
+                                }
+                                if(clickedItem>=0) selectedItem=clickedItem;
+                                else if(selectedItem>=0 &&
+                                        selectedItem<static_cast<int>(inventory.size())) {
+                                    const int gx=static_cast<int>(std::floor((mouse.x-left)/cell));
+                                    const int gy=static_cast<int>(std::floor((mouse.y-top)/cell));
+                                    InventoryItem& item=inventory[selectedItem];
+                                    if(inventoryFits(gx,gy,item.w,item.h,selectedItem)) {
+                                        item.x=gx;item.y=gy;
                                     }
                                 }
                             }
@@ -740,7 +750,7 @@ int main(int argc, char** argv) {
                             }
                             DrawText(TextFormat("%d/8 cells | %d boxes",used,quantity),
                                      left,top+2*cell+7,16,RAYWHITE);
-                            DrawText("Click select | R rotate | Q store | G drop | TAB hide",
+                            DrawText("Click select/place | R rotate | Q store | G drop | TAB hide",
                                      10,GetScreenHeight()-22,16,RAYWHITE);
                         } else {
                             DrawText("TAB: INVENTORY",10,GetScreenHeight()-24,16,RAYWHITE);
