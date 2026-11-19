@@ -100,7 +100,26 @@ if(RV_WITH_GRAPHICS)
             GIT_SHALLOW TRUE)
     endif()
     FetchContent_MakeAvailable(libwebp)
-    add_executable(racingcar_game graphics/main.cpp graphics/rv_model.cpp graphics/rv_player.cpp graphics/webp_texture.cpp src/rv_luau.cpp)
+    # FBX/GLB skeletal animation importer.
+    set(ASSIMP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+    set(ASSIMP_BUILD_ASSIMP_TOOLS OFF CACHE BOOL "" FORCE)
+    set(ASSIMP_BUILD_SAMPLES OFF CACHE BOOL "" FORCE)
+    set(ASSIMP_BUILD_ZLIB ON CACHE BOOL "" FORCE)
+    set(ASSIMP_BUILD_ALL_IMPORTERS_BY_DEFAULT OFF CACHE BOOL "" FORCE)
+    set(ASSIMP_BUILD_FBX_IMPORTER ON CACHE BOOL "" FORCE)
+    set(ASSIMP_BUILD_GLTF_IMPORTER ON CACHE BOOL "" FORCE)
+    set(ASSIMP_BUILD_OBJ_IMPORTER ON CACHE BOOL "" FORCE)
+    set(ASSIMP_BUILD_ALL_EXPORTERS_BY_DEFAULT OFF CACHE BOOL "" FORCE)
+    if(ASSIMP_SOURCE_DIR)
+        FetchContent_Declare(assimp SOURCE_DIR "${ASSIMP_SOURCE_DIR}")
+    else()
+        FetchContent_Declare(assimp
+            GIT_REPOSITORY https://github.com/assimp/assimp.git
+            GIT_TAG v5.4.3
+            GIT_SHALLOW TRUE)
+    endif()
+    FetchContent_MakeAvailable(assimp)
+    add_executable(racingcar_game graphics/main.cpp graphics/rv_model.cpp graphics/rv_player.cpp graphics/rv_animation.cpp graphics/webp_texture.cpp src/rv_luau.cpp)
     target_include_directories(racingcar_game PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/include"
         "${CMAKE_CURRENT_SOURCE_DIR}/src"
@@ -108,7 +127,7 @@ if(RV_WITH_GRAPHICS)
         "${libwebp_SOURCE_DIR}/src" # contains webp/decode.h
         "${luau_SOURCE_DIR}/VM/include"
         "${luau_SOURCE_DIR}/Compiler/include")
-    target_link_libraries(racingcar_game PRIVATE raycast_vehicle_static raylib webpdecoder Luau.VM Luau.Compiler)
+    target_link_libraries(racingcar_game PRIVATE raycast_vehicle_static raylib webpdecoder assimp::assimp Luau.VM Luau.Compiler)
     target_compile_definitions(racingcar_game PRIVATE
         RV_DEFAULT_GAME_SCRIPT="${CMAKE_CURRENT_SOURCE_DIR}/scripts/racing_game.luau")
 endif()
