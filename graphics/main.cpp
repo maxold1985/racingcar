@@ -152,6 +152,12 @@ int main(int argc, char** argv) {
                     while (!WindowShouldClose()) {
                         float frame=std::min(GetFrameTime(),0.1f);
                         accumulator+=frame;
+                        if (IsKeyPressed(KEY_R)) {
+                            // Manual recovery from rollovers or unstable states.
+                            rv_vehicle_set_pose(car,RVVec3{0,1.0f,0},RVQuat{0,0,0,1});
+                            rv_vehicle_set_velocity(car,RVVec3{0,0,0},RVVec3{0,0,0});
+                            accumulator=0.0f;
+                        }
                         const float throttle=(IsKeyDown(KEY_W)||IsKeyDown(KEY_UP)) ? 1.0f :
                                              (IsKeyDown(KEY_S)||IsKeyDown(KEY_DOWN)) ? -0.45f : 0.0f;
                         const float brake=IsKeyDown(KEY_SPACE) ? 1.0f : 0.0f;
@@ -162,6 +168,17 @@ int main(int argc, char** argv) {
                         while (accumulator>=fixedDt && steps<12) {
                             setInput(L,throttle,brake,steer);
                             if (!fixedUpdate(L,fixedDt)) { running=false; break; }
+                            // Demo ground collider: the render plane is at Y=0,
+                            // but wheel raycasts alone do not collide the chassis.
+                            // Keep a conservative chassis clearance above the plane.
+                            RVBodyState corrected=rv_vehicle_get_state(car);
+                            constexpr float chassisClearance=0.35f;
+                            if (corrected.position.y < chassisClearance) {
+                                corrected.position.y=chassisClearance;
+                                if (corrected.velocity.y < 0.0f) corrected.velocity.y=0.0f;
+                                rv_vehicle_set_pose(car,corrected.position,corrected.orientation);
+                                rv_vehicle_set_velocity(car,corrected.velocity,corrected.angular_velocity);
+                            }
                             accumulator-=fixedDt;
                             ++steps;
                         }
@@ -196,7 +213,7 @@ int main(int argc, char** argv) {
                         DrawRectangle(10,10,670,200,Fade(BLACK,0.70f));
                         DrawText(TextFormat("Speed: %.1f km/h",state.speed_kmh),20,20,24,RAYWHITE);
                         DrawText("W/S accelerate/reverse  A/D steer  SPACE brake",20,54,16,RAYWHITE);
-                        DrawText("ESC quit  |  model: GLB, glTF, OBJ, IQM",20,75,16,RAYWHITE);
+                        DrawText("R reset  |  ESC quit  |  model: GLB, glTF, OBJ, IQM",20,75,16,RAYWHITE);
                         DrawText(TextFormat("INPUT: throttle %.2f | brake %.2f | steer %.2f",
                                             throttle,brake,steer),20,100,18,YELLOW);
                         DrawText(TextFormat("CONTACT: %d/%d wheels | rear driven grounded: %d/2",
