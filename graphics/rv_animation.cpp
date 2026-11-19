@@ -450,6 +450,76 @@ void RVAnimation::update(float dt) {
                 deviations[i].name.c_str(),deviations[i].distance,
                 deviations[i].ratio);
     }
+    // Compare anatomical joint-to-joint lengths throughout the FBX take.
+    // Rigid bone rotations cannot change the distance between a joint and
+    // its parent. Large changes identify broken FBX hierarchy evaluation,
+    // unlike the normal displacement from T-pose to running.
+    static bool reportedLengths=false;
+    if(!reportedLengths && clip.sameSkeleton && clip.duration>0.0) {
+        reportedLengths=true;
+        std::unordered_set<std::string> skinnedNames;
+        for(const Part& part:parts_)
+            for(const Bone& bone:part.bones) skinnedNames.insert(bone.name);
+        struct JointPair {
+            std::string child,parent;
+            float restLength;
+        };
+        std::vector<JointPair> pairs;
+        const auto visit=[&](const auto& self,const aiNode* node,
+                             const aiNode* nearestBone)->void {
+            const std::string name=boneKey(node->mName.C_Str());
+            const bool isBone=skinnedNames.count(name)!=0;
+            if(isBone && nearestBone) {
+                const std::string parentName=boneKey(nearestBone->mName.C_Str());
+                const auto a=targetBind_.find(name);
+                const auto b=targetBind_.find(parentName);
+                if(a!=targetBind_.end() && b!=targetBind_.end()) {
+                    const aiVector3D pa(a->second.a4,a->second.b4,a->second.c4);
+                    const aiVector3D pb(b->second.a4,b->second.b4,b->second.c4);
+                    const float length=(pa-pb).Length();
+                    if(length>0.01f)
+                        pairs.push_back({name,parentName,length});
+                }
+            }
+            const aiNode* next=isBone?node:nearestBone;
+            for(unsigned i=0;i<node->mNumChildren;++i)
+                self(self,node->mChildren[i],next);
+        };
+        visit(visit,clip.source->mRootNode,nullptr);
+        struct Distortion { std::string child,parent;float ratio,tick; };
+        std::vector<Distortion> worst;
+        for(const JointPair& pair:pairs) {
+            float worstRatio=1.0f,worstTick=0.0f;
+            // Sample all twenty frames of the short Mixamo clip.
+            for(unsigned frame=0;frame<=20;++frame) {
+                const double sampleTick=clip.duration*double(frame)/20.0;
+                Pose sample;
+                gatherPose(clip.source->mRootNode,aiMatrix4x4(),
+                           clip.channels,sampleTick,sample);
+                const auto a=sample.find(pair.child),b=sample.find(pair.parent);
+                if(a==sample.end() || b==sample.end()) continue;
+                const aiVector3D pa(a->second.a4,a->second.b4,a->second.c4);
+                const aiVector3D pb(b->second.a4,b->second.b4,b->second.c4);
+                const float ratio=(pa-pb).Length()/pair.restLength;
+                if(std::isfinite(ratio) &&
+                   std::abs(ratio-1.0f)>std::abs(worstRatio-1.0f)) {
+                    worstRatio=ratio;worstTick=float(sampleTick);
+                }
+            }
+            worst.push_back({pair.child,pair.parent,worstRatio,worstTick});
+        }
+        std::sort(worst.begin(),worst.end(),
+                  [](const Distortion& a,const Distortion& b) {
+                      return std::abs(a.ratio-1.0f)>std::abs(b.ratio-1.0f);
+                  });
+        std::fprintf(stderr,"[FBX LENGTH] checked %zu bone pairs over 21 samples\n",
+                     pairs.size());
+        for(size_t i=0;i<std::min(size_t(15),worst.size());++i)
+            std::fprintf(stderr,
+                "[FBX LENGTH] %s <- %s ratio=%.3f tick=%.2f\n",
+                worst[i].child.c_str(),worst[i].parent.c_str(),
+                worst[i].ratio,worst[i].tick);
+    }
     bool invalid=false;
     for(Part& part:parts_) {
         if(part.bones.empty()) continue;
