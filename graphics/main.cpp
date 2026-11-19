@@ -324,14 +324,20 @@ int main(int argc, char** argv) {
                     // Only non-negative, bounded balances are accepted from disk.
                     constexpr int maxWallet=100000000;
                     int wallet=0;
+                    int deliveryUpgrade=0; // 0..3, permanent payout upgrade
+                    constexpr int upgradePrices[3]={600,1200,2400};
                     const char* walletSavePath="cargo_run_save.txt";
                     {
                         std::ifstream save(walletSavePath);
                         long long balance=-1;
                         if(save >> balance && balance>=0 && balance<=maxWallet)
                             wallet=static_cast<int>(balance);
+                        int level=0;
+                        if(save >> level && level>=0 && level<=3)
+                            deliveryUpgrade=level;
                     }
                     const std::array<int,3> missionCrates{{1,2,4}};
+                    const Vector3 garageZone{state.position.x,0.05f,state.position.z};
                     const Vector3 deliveryZone{state.position.x+8.0f,0.05f,state.position.z+65.0f};
                     auto missionCargo=[&]() {
                         int count=0;
@@ -361,6 +367,20 @@ int main(int argc, char** argv) {
                     while (!WindowShouldClose()) {
                         float frame=std::min(GetFrameTime(),0.1f);
                         accumulator+=frame;
+                        // Garage shop: U purchases a permanent payout upgrade.
+                        // Player must be on foot, near the starting garage.
+                        const Vector3 garagePlayerPosition=player.insideCar ?
+                            toRay(rv_vehicle_get_state(car).position) : player.position();
+                        const bool atGarage=!player.insideCar &&
+                            std::hypot(garagePlayerPosition.x-garageZone.x,
+                                       garagePlayerPosition.z-garageZone.z)<8.0f;
+                        if(atGarage && IsKeyPressed(KEY_U) && deliveryUpgrade<3 &&
+                           wallet>=upgradePrices[deliveryUpgrade]) {
+                            wallet-=upgradePrices[deliveryUpgrade];
+                            ++deliveryUpgrade;
+                            std::ofstream save(walletSavePath,std::ios::trunc);
+                            if(save) save << wallet << '\n' << deliveryUpgrade << '\n';
+                        }
                         if(IsKeyPressed(KEY_N) &&
                            (mission==Mission::Available || mission==Mission::Completed ||
                             mission==Mission::Failed)) {
@@ -521,11 +541,12 @@ int main(int argc, char** argv) {
                            distanceToDelivery<6.0f && player.insideCar &&
                            std::abs(state.speed_kmh)<5.0f) {
                             mission=Mission::Completed;
-                            missionReward=450+static_cast<int>(missionTime*0.15f);
+                            const int baseReward=450+static_cast<int>(missionTime*0.15f);
+                            missionReward=baseReward*(100+deliveryUpgrade*10)/100;
                             wallet=std::min(maxWallet,wallet+missionReward);
                             {
                                 std::ofstream save(walletSavePath,std::ios::trunc);
-                                if(save) save << wallet << '\n';
+                                if(save) save << wallet << '\n' << deliveryUpgrade << '\n';
                                 else std::fprintf(stderr,"Unable to save Cargo Run wallet\n");
                             }
                             removeMissionCargo();
@@ -797,6 +818,8 @@ int main(int argc, char** argv) {
                                             enemyPosition.z},0.24f,
                                    enemyChasing?RED:YELLOW);
 
+                        DrawCylinder(garageZone,8.0f,8.0f,0.06f,32,Fade(GOLD,0.22f));
+                        DrawCylinderWires(garageZone,8.0f,8.0f,0.06f,32,GOLD);
                         DrawCylinder(deliveryZone,6.0f,6.0f,0.08f,32,Fade(GREEN,0.3f));
                         DrawCylinderWires(deliveryZone,6.0f,6.0f,0.08f,32,DARKGREEN);
                         DrawLine3D(deliveryZone,Vector3{deliveryZone.x,6.0f,deliveryZone.z},GREEN);
@@ -939,6 +962,16 @@ int main(int argc, char** argv) {
                          if(mission==Mission::Completed)
                              DrawText(TextFormat("REWARD: $%d",missionReward),20,342,18,GREEN);
                          else DrawText("N contract | Q store | F exit | TAB inventory",20,342,16,LIGHTGRAY);
+                         if(atGarage) {
+                             DrawRectangle(10,385,560,62,Fade(BLACK,0.80f));
+                             DrawText(TextFormat("GARAGE | Delivery bonus: +%d%%",deliveryUpgrade*10),
+                                      20,392,20,GOLD);
+                             if(deliveryUpgrade<3)
+                                 DrawText(TextFormat("U: Upgrade delivery bonus (+10%%) - $%d",
+                                                   upgradePrices[deliveryUpgrade]),
+                                          20,419,18,RAYWHITE);
+                             else DrawText("All delivery upgrades purchased",20,419,18,GREEN);
+                         }
                          DrawFPS(GetScreenWidth()-100,20);
                         EndDrawing();
                     }
