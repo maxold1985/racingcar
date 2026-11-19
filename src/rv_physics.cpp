@@ -17,6 +17,7 @@ struct RVVehicle {
     float throttle, brake, steer;
     RVWheel wheels[RV_MAX_WHEELS];
     int count;
+    float condition_factor;
     float stock_engine_force;
     float stock_friction[RV_MAX_WHEELS];
     float stock_spring[RV_MAX_WHEELS];
@@ -99,6 +100,7 @@ RVVehicle* rv_vehicle_create(const RVBodyDesc* desc) {
     if (!v) return NULL;
     v->cfg=*desc;
     v->stock_engine_force=desc->engine_force;
+    v->condition_factor=1.0f;
     v->body.position=desc->position;
     v->body.orientation=quat_norm(desc->orientation);
     return v;
@@ -131,14 +133,27 @@ void rv_vehicle_set_velocity(RVVehicle* v, RVVec3 linear, RVVec3 angular) {
 void rv_vehicle_apply_upgrades(RVVehicle* v,int engine,int tires,int suspension) {
     if(!v || engine<0 || engine>3 || tires<0 || tires>3 ||
        suspension<0 || suspension>3) return;
-    v->cfg.engine_force=v->stock_engine_force*(1.0f+0.12f*engine);
+    v->cfg.engine_force=v->stock_engine_force*(1.0f+0.12f*engine)*
+        (0.40f+0.60f*v->condition_factor);
     for(int i=0;i<v->count;++i) {
         RVWheelDesc* d=&v->wheels[i].desc;
-        d->friction=v->stock_friction[i]*(1.0f+0.08f*tires);
+        d->friction=v->stock_friction[i]*(1.0f+0.08f*tires)*
+            (0.65f+0.35f*v->condition_factor);
         d->spring_stiffness=v->stock_spring[i]*(1.0f+0.08f*suspension);
         d->damper_bump=v->stock_bump[i]*(1.0f+0.08f*suspension);
         d->damper_rebound=v->stock_rebound[i]*(1.0f+0.08f*suspension);
     }
+}
+void rv_vehicle_set_condition(RVVehicle* v,float condition) {
+    if(!v || !isfinite(condition)) return;
+    const float oldFactor=v->condition_factor;
+    const float nextFactor=clampf(condition,0.0f,100.0f)/100.0f;
+    v->cfg.engine_force*=(0.40f+0.60f*nextFactor)/
+                         (0.40f+0.60f*oldFactor);
+    for(int i=0;i<v->count;++i)
+        v->wheels[i].desc.friction*=(0.65f+0.35f*nextFactor)/
+                                    (0.65f+0.35f*oldFactor);
+    v->condition_factor=nextFactor;
 }
 void rv_vehicle_set_controls(RVVehicle* v, float throttle, float brake, float steer) {
     if (v) { v->throttle=clampf(throttle,-1,1); v->brake=clampf(brake,0,1); v->steer=clampf(steer,-1,1); }
