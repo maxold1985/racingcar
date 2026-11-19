@@ -53,6 +53,7 @@ bool LoadGameConfig(const std::string& filename, RVGameConfig& out) {
         else if(key=="character") target=&loaded.character;
         else if(key=="idle") target=&loaded.idle;
         else if(key=="walking") target=&loaded.walking;
+        else if(key=="jump") target=&loaded.jump;
         else if(key=="enter_car") target=&loaded.enterCar;
         else {
             std::fprintf(stderr,"Config %s:%u: unknown key '%s'\n",
