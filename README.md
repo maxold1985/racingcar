@@ -2,11 +2,13 @@
 
 Biblioteca **independente de engine**, projetada para um jogo de corrida 3D com scripts interpretados em **Luau**.
 
-- `src/rv_physics.c`: dinâmica de corpo rígido simplificada, raycast suspension, pneu e anti-roll em **C11**.
+- `src/rv_physics.cpp`: dinâmica de corpo rígido simplificada, raycast suspension, pneu e anti-roll em **C++17**.
 - `include/rv_physics.h`: ABI C para integração com qualquer engine nativa (ou DLL no Windows).
+- `include/rv_vec3.hpp`: operadores C++ para `RVVec3`, sem alterar o cabeçalho C.
 - `src/rv_luau.cpp` e `src/rv_luau.h`: expõem a API `Physics.*` para scripts Luau.
 - `demo/main.cpp`: executável host que compila/carrega `.luau` e fornece raycast de um plano `Y=0`.
 - `scripts/race.luau`: carro 4x2 com suspensão independente, direção, aceleração e freio.
+- `tests/test_vec3.cpp`: testes de operadores e compatibilidade da estrutura C.
 - `tests/test_vehicle.c`: testes com terreno plano, suspensão, aceleração, freio e parâmetros de tempo inválidos.
 
 **Limite importante:** esta é uma **biblioteca de dinâmica veicular**, não um motor de colisão 3D. O jogo deve fornecer raycasts contra a pista, colisões do chassi com o mundo, obstáculos, barreiras, contatos entre carros, renderização e áudio. Sem colisão adicional do chassi, capotamentos/penetrações extremas não são resolvidos.
@@ -48,7 +50,7 @@ cmake --build build-c --config Release
 ctest --test-dir build-c -C Release --output-on-failure
 ```
 
-São gerados `raycast_vehicle.dll`/`.lib` (API C exportada), `raycast_vehicle_static.lib` e `rv_tests.exe`. A DLL exporta `rv_vehicle_create`, `rv_vehicle_add_wheel`, `rv_vehicle_step` etc.
+São gerados `raycast_vehicle.dll`/`.lib` (API C exportada), `raycast_vehicle_static.lib` e `rv_tests.exe`/`rv_vector_tests.exe`. A DLL exporta `rv_vehicle_create`, `rv_vehicle_add_wheel`, `rv_vehicle_step` etc.
 
 No Linux:
 
@@ -116,7 +118,7 @@ end
 
 ### Integrar com um motor 3D próprio
 
-1. Compile e integre `raycast_vehicle` por C ou inclua os objetos estáticos C11.
+1. Compile e integre `raycast_vehicle` por C ou inclua os objetos estáticos C++17, preservando a ABI C.
 2. Registre `rv_register_luau(lua_State* L, RVLuauContext* context)` antes de ativar o sandbox Luau.
 3. Implemente `context.raycast` como consulta ao BVH, Bullet, Jolt ou colisor da pista, retornando distância, ponto, normal e velocidade da superfície.
 4. Carregue o `.luau` usando `luau_compile()` e `luau_load()` e execute `fixedUpdate(1/120)` em thread sandboxed.
@@ -131,3 +133,43 @@ end
 - [Bullet — referência de implementação de veículo por raycast](https://github.com/bulletphysics/bullet3/blob/master/src/BulletDynamics/Vehicle/btRaycastVehicle.cpp)
 
 O código nesta pasta é uma implementação original de demonstração, não contém trechos copiados do Bullet. Luau é obtido separadamente e possui licença MIT.
+
+
+## Operadores vetoriais C++17 e Luau
+
+**C++:** `RVVec3` continua sendo um tipo `struct` com três `float`s, definido no cabeçalho público `include/rv_physics.h` para consumo de código C. A implementação da simulação passou de `src/rv_physics.c` para `src/rv_physics.cpp`. Inclua `rv_vec3.hpp` em arquivos C++ para ter:
+
+```cpp
+#include "rv_vec3.hpp"
+
+RVVec3 a{1, 2, 3}, b{4, 5, 6};
+RVVec3 soma = a + b;             // (5, 7, 9)
+RVVec3 subtracao = a - b;        // (-3, -3, -3)
+RVVec3 forca = a * 10.0f;       // (10, 20, 30) — substitui mul(a,10)
+RVVec3 inverso = -a;            // (-1, -2, -3)
+RVVec3 comp = a * b;            // (4, 10, 18) — componente a componente
+RVVec3 media = (a + b) / 2.0f;
+a += b;
+a *= 0.5f;
+float produtoEscalar = rv_math::dot(a, b);
+RVVec3 produtoVetorial = rv_math::cross(a, b);
+```
+
+Operadores: `+`, `-`, negação unária, `*` (escalar e entre vetores), `/` (escalar), `+=`, `-=`, `*=`, `/=`. **Atenção:** `a * b` é multiplicação componente a componente; produto escalar é `rv_math::dot`. O cabeçalho C **não** contém sobrecarga de operadores, que só existe em C++.
+
+**Luau:** o wrapper lê vetores nativos `vector.create(x,y,z)` *ou* tabelas tradicionais `{x=..., y=..., z=...}` como argumento. As posições, velocidades e centros/contatos de roda retornam valores **vector nativos**, aceitando operadores aritméticos:
+
+```luau
+local car = Physics.newVehicle({position = vector.create(0, 1, 0)})
+-- Adicione as rodas usando Physics.addWheel(...).
+local estado = Physics.getState(car)
+local proximaPosicao = estado.position + estado.velocity * (1 / 120)
+```
+
+O Luau fornece `vector.dot`, `vector.cross`, `vector.normalize` e operações aritméticas nativas. Vetores Luau são imutáveis (as operações produzem um novo vetor).
+
+**Compatibilidade:** o ABI dos exports C e o layout de `RVVec3` são preservados. Como a implementação agora é C++17, ao vincular a biblioteca **estática** de um programa C é necessário vincular também o runtime C++.
+
+**Testes:** no ambiente Linux, `cmake -DRV_WITH_LUAU=OFF`, build e CTest passaram (2/2: `vehicle_core` e `vector_operators`). A nova integração com a VM Luau foi conferida contra a API oficial e passou na checagem sintática C++ isolada, mas **não foi executada contra a VM Luau real neste ambiente**.
+
+Fonte da API vetorial Luau: https://luau.org/library/
