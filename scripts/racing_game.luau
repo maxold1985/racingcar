@@ -36,10 +36,14 @@ addWheel( 0.8, -1.3, false)
 -- The host reads this ID to render the chassis and four wheels.
 vehicleId = car
 
+-- This table is updated in-place by the C++ host.
+-- Capturing Input once keeps runtime reads dynamic and avoids stale imports.
+local input = Input
+
 function fixedUpdate(dt)
-    local throttle = Input.throttle
-    local brake = Input.brake
-    local steer = Input.steer
+    local throttle = input.throttle
+    local brake = input.brake
+    local steer = input.steer
     Physics.setControls(car, throttle, brake, steer)
     Physics.step(car, dt)
 end
