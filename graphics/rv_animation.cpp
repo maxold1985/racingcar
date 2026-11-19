@@ -1,6 +1,7 @@
 #include "rv_animation.hpp"
 #include "raymath.h"
 #include <assimp/postprocess.h>
+#include <assimp/config.h>
 #include <assimp/vector3.inl>
 #include <assimp/matrix4x4.inl>
 #include <algorithm>
@@ -89,26 +90,11 @@ void gatherPose(const aiNode* node, const aiMatrix4x4& parent,
         aiQuaternion rotation;
         local.Decompose(scale,rotation,position);
         const aiNodeAnim* c=channel->second;
-        // Assimp's FBX importer may represent FBX pivots as separate
-        // nodes (e.g. Bone_$AssimpFbx$_Translation). Those nodes already
-        // contain the joint offset. Replacing the real bone's translation
-        // with the FBX channel position would apply the offset twice.
-        // Detect this from the imported hierarchy, not from an assumed
-        // bone name or a blanket restriction on all animated joints.
-        bool parentProvidesTranslation=false;
-        for(const aiNode* ancestor=node->mParent;ancestor;
-            ancestor=ancestor->mParent) {
-            const std::string ancestorName=ancestor->mName.C_Str();
-            if(ancestorName.find("_$AssimpFbx$_Translation")!=std::string::npos) {
-                parentProvidesTranslation=true;
-                break;
-            }
-            // Do not cross into another real joint's hierarchy.
-            if(ancestorName.find("_$AssimpFbx$_")==std::string::npos)
-                break;
-        }
-        const aiVector3D p=parentProvidesTranslation
-            ?position:samplePosition(c,tick,position);
+        // With FBX pivot preservation disabled, Assimp collapses pivot
+        // helper transforms into the imported node animation channels.
+        // Every channel supplies its complete local TRS; do not suppress
+        // translations based on bone names or helper-node heuristics.
+        const aiVector3D p=samplePosition(c,tick,position);
         const aiQuaternion q=sampleRotation(c,tick,rotation);
         const aiVector3D vscale=sampleScale(c,tick,scale);
         aiMatrix4x4 scaling(vscale.x,0,0,0, 0,vscale.y,0,0,
@@ -163,6 +149,9 @@ bool RVAnimation::loadCharacter(const char* path) {
     unload();
     if(!path || !path[0]) return false;
     character_=std::make_unique<Assimp::Importer>();
+    // Ask Assimp to resolve FBX pre/post rotations and pivots during import.
+    // Keeping helper nodes led to inconsistent animated joint transforms.
+    character_->SetPropertyBool(AI_CONFIG_IMPORT_FBX_PRESERVE_PIVOTS,false);
     scene_=character_->ReadFile(path,importFlags);
     if(!scene_ || !scene_->mRootNode || !scene_->HasMeshes()) {
         std::fprintf(stderr,"Assimp character import failed: %s (%s)\n",
@@ -336,6 +325,7 @@ bool RVAnimation::loadClip(const std::string& name,const char* path) {
     }
     Clip clip;
     clip.importer=std::make_unique<Assimp::Importer>();
+    clip.importer->SetPropertyBool(AI_CONFIG_IMPORT_FBX_PRESERVE_PIVOTS,false);
     clip.source=clip.importer->ReadFile(path,importFlags);
     if(!clip.source || !clip.source->mRootNode || !clip.source->HasAnimations()) {
         std::fprintf(stderr,"FBX animation import failed: %s (%s)\n",
