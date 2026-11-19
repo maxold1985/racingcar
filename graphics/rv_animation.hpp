@@ -51,6 +51,7 @@ private:
         double ticksPerSecond=25.0;
     };
     std::unique_ptr<Assimp::Importer> character_;
+    std::string characterPath_;
     const aiScene* scene_=nullptr;
     std::vector<Part> parts_;
     Pose targetBind_;
