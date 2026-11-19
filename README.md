@@ -216,3 +216,22 @@ Se preferir dependências já clonadas:
 **Escopo atual:** o leitor importa geometria e materiais para **renderização**, não constrói automaticamente colisores físicos a partir do modelo. O raycast do exemplo ainda é feito sobre o plano Y=0. A biblioteca não inclui editor visual, animação esquelética, carregamento de cenas completas, sombras dinâmicas ou colisões entre veículos. Para circuitos reais, substitua `ground_ray()` por raycast em BVH/malha de colisão da pista.
 
 **Validação:** os testes do núcleo C/C++ continuam disponíveis via `ctest`; a compilação e execução do novo alvo gráfico com dependências reais ainda devem ser verificadas no ambiente Windows do usuário. Dependências externas são obtidas pelo CMake FetchContent, e nenhuma delas foi copiada para o repositório.
+
+
+### Diagnóstico: raylib renderiza a 120 FPS, mas o carro não acelera
+
+A falha foi localizada na integração C++/Luau. O host reconstruía o global `Input` a cada passo físico, enquanto a otimização `GETIMPORT` do Luau pode armazenar em cache cadeias globais (`Input.throttle`). O resultado pode ser o script sempre receber `throttle=0`.
+
+**Correções aplicadas:** o host atualiza os campos da mesma tabela `Input`, o compilador recebe `mutableGlobals={"Input"}`, e o script mantém uma referência `local input = Input`. O painel gráfico mostra tanto `INPUT` (teclado da raylib) quanto `LUAU` (valores realmente recebidos por `Physics.setControls()`), além de `VM physics steps` e contatos das rodas.
+
+Após compilar com `RV_WITH_LUAU=ON` execute a regressão sem abrir janela:
+
+```powershell
+ctest --test-dir build -C Release -R luau_live_input --output-on-failure
+```
+
+O teste `tests/test_luau_input.cpp` usa a VM Luau real e o script `scripts/racing_game.luau` e verifica a transição de acelerador 0→1→0, frenagem, direção e deslocamento físico. A compilação e execução desse novo teste precisam ser realizadas em uma máquina com as bibliotecas Luau reais; não foram executadas neste ambiente.
+
+Observação: `Indices data converted from u32 to u16` é um aviso separado do carregador GLB da raylib e pode causar defeitos na malha, mas não é evidência de bloqueio do teclado.
+
+Referências de suporte: https://luau.org/api/ e https://github.com/luau-lang/luau/blob/master/Compiler/include/luacode.h
