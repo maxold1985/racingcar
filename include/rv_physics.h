@@ -100,6 +100,9 @@ RV_API int rv_vehicle_add_wheel(RVVehicle* vehicle, const RVWheelDesc* desc);
 RV_API int rv_vehicle_wheel_count(const RVVehicle* vehicle);
 RV_API void rv_vehicle_set_pose(RVVehicle* vehicle, RVVec3 pos, RVQuat quat);
 RV_API void rv_vehicle_set_velocity(RVVehicle* vehicle, RVVec3 linear, RVVec3 angular);
+/* Apply garage tuning from original factory values; levels are 0..3. */
+RV_API void rv_vehicle_apply_upgrades(RVVehicle* vehicle, int engine_level,
+                                      int tire_level, int suspension_level);
 RV_API void rv_vehicle_set_controls(RVVehicle* vehicle, float throttle, float brake, float steer);
 RV_API RVBodyState rv_vehicle_get_state(const RVVehicle* vehicle);
 RV_API RVWheelState rv_vehicle_get_wheel(const RVVehicle* vehicle, int index);
