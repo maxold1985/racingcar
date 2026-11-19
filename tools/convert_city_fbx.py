@@ -30,7 +30,7 @@ for file in kit_root.rglob("*"):
 
 print(f"[CITY] Indexed {len(texture_index)} texture names under {kit_root}")
 metrics = {}
-for name in NAMES:
+for model_id, name in enumerate(NAMES, 1):
     file = src / (name + ".fbx")
     if not file.is_file():
         print("[CITY] SKIP missing:", file)
@@ -73,9 +73,9 @@ for name in NAMES:
         depth = max(v.y for v in corners) - min(v.y for v in corners)
         # Blender glTF exports Z-up meshes as Y-up for raylib.
         # Blender Y footprint becomes raylib Z footprint.
-        metrics[len(metrics) + 1] = (width, depth)
+        metrics[model_id] = (width, depth)
     else:
-        metrics[len(metrics) + 1] = (0.0, 0.0)
+        metrics[model_id] = (0.0, 0.0)
     output = dst / (name + ".glb")
     bpy.ops.export_scene.gltf(filepath=str(output), export_format="GLB",
                               export_materials="EXPORT", export_image_format="AUTO")
