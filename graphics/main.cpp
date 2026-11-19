@@ -340,7 +340,14 @@ int main(int argc, char** argv) {
                         }
                         // WHITE preserves the imported glTF/GLB base-color textures and materials.
                         // A red tint multiplies every material color and makes the car red.
-                        chassis.draw(pos,orientation,1.0f,WHITE);
+                        // The visible wheels are part of the GLB chassis mesh;
+                        // physics wheels are intentionally not rendered. Lower
+                        // only the visual model to bring its tires closer to the
+                        // ground without changing suspension, raycasts or COM.
+                        constexpr float carVisualDrop=0.30f;
+                        const Vector3 carVisualPosition=Vector3Add(
+                            pos,Vector3{0.0f,-carVisualDrop,0.0f});
+                        chassis.draw(carVisualPosition,orientation,1.0f,WHITE);
                         player.draw();
                         if (!player.insideCar) {
                             const Vector3 marker=Vector3Add(door,Vector3{0,0.12f,0});
