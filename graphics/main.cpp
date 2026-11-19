@@ -525,8 +525,8 @@ int main(int argc, char** argv) {
                             wallet=std::min(maxWallet,wallet+missionReward);
                             {
                                 std::ofstream save(walletSavePath,std::ios::trunc);
-                                if(save) save << wallet << '\\n';
-                                else std::fprintf(stderr,"Unable to save Cargo Run wallet\\n");
+                                if(save) save << wallet << '\n';
+                                else std::fprintf(stderr,"Unable to save Cargo Run wallet\n");
                             }
                             removeMissionCargo();
                         }
