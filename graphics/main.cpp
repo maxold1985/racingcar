@@ -690,7 +690,7 @@ int main(int argc, char** argv) {
                         // Damage fragile cargo from abrupt vertical impacts.
                         // Only cargo loaded for an active delivery can be damaged.
                         cargoImpactCooldown=std::max(0.0f,cargoImpactCooldown-frame);
-                        const float verticalSpeed=state.linear_velocity.y;
+                        const float verticalSpeed=state.velocity.y;
                         if(mission==Mission::Delivering && missionCargo()==3 &&
                            cargoImpactCooldown<=0.0f) {
                             const float verticalDelta=std::abs(
