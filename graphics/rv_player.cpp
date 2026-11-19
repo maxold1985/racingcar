@@ -5,7 +5,7 @@
 
 bool RVPlayer::load(const char* modelPath) {
     if (modelPath && modelPath[0] && animation_.loadCharacter(modelPath)) {
-        animation_.play("Default",true);
+        animation_.play("BindPose",true);
         return true;
     }
     if (modelPath && modelPath[0] && model_.load(modelPath)) {
@@ -42,10 +42,16 @@ void RVPlayer::update(float dt, const Camera3D& camera) {
         position_=Vector3Add(position_,Vector3Scale(movement,4.0f*dt));
         facing_=std::atan2(movement.x,movement.z);
         walkPhase_+=dt*11.0f;
-        if (!walking_) { animation_.play("Walking",true); walking_=true; }
+        if (!walking_) {
+            if (!animation_.play("Walking",true)) animation_.play("Default",true);
+            walking_=true;
+        }
     } else {
         walkPhase_=0.0f;
-        if (walking_) { animation_.play("Idle",true); walking_=false; }
+        if (walking_) {
+            if (!animation_.play("Idle",true)) animation_.play("BindPose",true);
+            walking_=false;
+        }
     }
     animation_.update(dt);
     position_.y=0.0f; // demo collision plane
