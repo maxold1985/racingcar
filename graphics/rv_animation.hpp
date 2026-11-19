@@ -54,6 +54,7 @@ private:
     std::string characterPath_;
     const aiScene* scene_=nullptr;
     std::vector<Part> parts_;
+    std::vector<Texture2D> ownedTextures_;
     Pose targetBind_;
     std::unordered_map<std::string,Clip> clips_;
     std::string active_;
