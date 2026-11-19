@@ -129,8 +129,7 @@ const aiAnimation* selectAnimation(const aiScene* scene) {
     return best;
 }
 // Measure whether the FBX mesh-space inverse bind matches the imported
-// rest hierarchy, using dimensionless affine error (translation in FBX
-// units may be non-zero even when rotations are valid).
+// rest hierarchy using affine error. Translation is measured in FBX units.
 float bindMatrixError(const aiMatrix4x4& m) {
     return std::abs(m.a1-1)+std::abs(m.b2-1)+std::abs(m.c3-1)+
            std::abs(m.a2)+std::abs(m.a3)+std::abs(m.b1)+
