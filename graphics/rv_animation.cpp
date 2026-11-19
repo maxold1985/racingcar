@@ -118,8 +118,8 @@ bool RVAnimation::loadCharacter(const char* path) {
             const aiBone* sb=src->mBones[b];
             Bone bone;
             bone.name=boneKey(sb->mName.C_Str());
-            // Mesh-local bind vertices need the mesh node transform before skinning.
-            bone.offset=sb->mOffsetMatrix*meshBind;
+            // Assimp offset already maps mesh-local bind vertices into bone space.
+            bone.offset=sb->mOffsetMatrix;
             for(unsigned w=0;w<sb->mNumWeights;++w)
                 bone.weights.push_back({sb->mWeights[w].mVertexId,sb->mWeights[w].mWeight});
             part.bones.push_back(std::move(bone));
