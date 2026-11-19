@@ -109,17 +109,37 @@ int main(int argc, char** argv) {
 
     Texture2D pavement{};
     bool pavementLoaded=false;
+    std::fprintf(stderr, "Working directory: %s\n", GetWorkingDirectory());
+    std::fprintf(stderr, "Pavement path: %s\n", pavementPath);
     if (FileExists(pavementPath)) {
         pavement=LoadWebPTexture(pavementPath);
         pavementLoaded=IsTextureValid(pavement);
         if (pavementLoaded) {
             SetTextureFilter(pavement,TEXTURE_FILTER_BILINEAR);
             SetTextureWrap(pavement,TEXTURE_WRAP_REPEAT);
-            std::fprintf(stderr,"Pavement texture loaded: %s (%dx%d)\\n",
-                         pavementPath,pavement.width,pavement.height);
+            std::fprintf(stderr,"Pavement loaded: %s (%dx%d), GPU texture %u\n",
+                         pavementPath,pavement.width,pavement.height,pavement.id);
         }
+    } else {
+        std::fprintf(stderr,"Pavement file does not exist: %s\n",pavementPath);
     }
-    if (!pavementLoaded) std::fprintf(stderr,"Pavement WEBP not loaded: %s; using solid ground\\n",pavementPath);
+    if (!pavementLoaded)
+        std::fprintf(stderr,"Pavement WebP unavailable: %s; using solid ground\n",pavementPath);
+
+    // Use raylib's mesh/material renderer rather than raw rlgl immediate mode.
+    // Its shader receives the texture and UVs through the normal model pipeline.
+    Model pavementModel{};
+    if (pavementLoaded) {
+        Mesh mesh=GenMeshPlane(1500.0f,1500.0f,1,1);
+        for (int i=0; i<mesh.vertexCount; ++i) {
+            mesh.texcoords[i*2] *= 300.0f;
+            mesh.texcoords[i*2+1] *= 300.0f;
+        }
+        UpdateMeshBuffer(mesh, 1, mesh.texcoords, mesh.vertexCount*2*sizeof(float), 0);
+        pavementModel=LoadModelFromMesh(mesh);
+        // Replace only the default albedo map. Do not unload the same texture twice.
+        pavementModel.materials[0].maps[MATERIAL_MAP_DIFFUSE].texture=pavement;
+    }
 
     RVModel chassis;
     // The imported GLB already includes its own wheels. Keep simulated tires
@@ -252,19 +272,7 @@ int main(int argc, char** argv) {
                         ClearBackground(Color{125,180,220,255});
                         BeginMode3D(camera);
                         if (pavementLoaded) {
-                            // Repeat the image every 5 metres across the 1500m plane.
-                            // Geometry is drawn at Y=-0.025 to avoid fighting with
-                            // the collision plane at Y=0.
-                            rlSetTexture(pavement.id);
-                            rlBegin(RL_QUADS);
-                                rlColor4ub(255,255,255,255);
-                                rlNormal3f(0.0f,1.0f,0.0f);
-                                rlTexCoord2f(0.0f,0.0f);     rlVertex3f(-750.0f,-0.025f,-750.0f);
-                                rlTexCoord2f(300.0f,0.0f);   rlVertex3f( 750.0f,-0.025f,-750.0f);
-                                rlTexCoord2f(300.0f,300.0f); rlVertex3f( 750.0f,-0.025f, 750.0f);
-                                rlTexCoord2f(0.0f,300.0f);   rlVertex3f(-750.0f,-0.025f, 750.0f);
-                            rlEnd();
-                            rlSetTexture(0);
+                            DrawModel(pavementModel,Vector3{0,-0.025f,0},1.0f,WHITE);
                         } else {
                             DrawPlane(Vector3{0,-0.025f,0},Vector2{1500,1500},Color{65,100,65,255});
                             DrawGrid(80,5);
@@ -275,7 +283,7 @@ int main(int argc, char** argv) {
                         // Tire meshes intentionally hidden. Physics raycasts,
                         // steering, anti-roll and tire forces still run normally.
                         EndMode3D();
-                        DrawRectangle(10,10,670,200,Fade(BLACK,0.70f));
+                        DrawRectangle(10,10,670,226,Fade(BLACK,0.70f));
                         DrawText(TextFormat("Speed: %.1f km/h",state.speed_kmh),20,20,24,RAYWHITE);
                         DrawText("W/S accelerate/reverse  A/D steer  SPACE brake",20,54,16,RAYWHITE);
                         DrawText("R reset | RMB orbit | Wheel zoom | HOME camera | ESC quit",20,75,16,RAYWHITE);
@@ -290,6 +298,7 @@ int main(int argc, char** argv) {
                         DrawText(TextFormat("VM physics steps: %llu | focused: %s",
                                             ctx.physics_steps,IsWindowFocused()?"YES":"NO"),
                                  20,173,18,ctx.physics_steps>0?GREEN:RED);
+                        DrawText(pavementLoaded ? "PAVEMENT: WEBP OK" : "PAVEMENT: NOT LOADED",20,198,18,pavementLoaded?GREEN:RED);
                         DrawFPS(GetScreenWidth()-100,20);
                         EndDrawing();
                     }
@@ -299,7 +308,10 @@ int main(int argc, char** argv) {
         }
     }
     chassis.unload();
-    if (pavementLoaded) UnloadTexture(pavement);
+    if (pavementLoaded) {
+        // UnloadModel owns its material textures, including pavement.
+        UnloadModel(pavementModel);
+    }
     CloseWindow();
     return status;
 }
