@@ -148,6 +148,12 @@ int main(int argc, char** argv) {
                     camera.up=Vector3{0,1,0};
                     camera.fovy=65;
                     camera.projection=CAMERA_PERSPECTIVE;
+                    // Orbit around the car with right mouse drag; wheel zooms.
+                    // Yaw is world-space so chassis roll never flips the camera.
+                    float orbitYaw=0.0f;
+                    float orbitPitch=0.28f;
+                    float orbitDistance=9.0f;
+                    Vector3 cameraFocus=Vector3Add(toRay(state.position),Vector3{0,0.6f,0});
 
                     while (!WindowShouldClose()) {
                         float frame=std::min(GetFrameTime(),0.1f);
@@ -161,8 +167,9 @@ int main(int argc, char** argv) {
                         const float throttle=(IsKeyDown(KEY_W)||IsKeyDown(KEY_UP)) ? 1.0f :
                                              (IsKeyDown(KEY_S)||IsKeyDown(KEY_DOWN)) ? -0.45f : 0.0f;
                         const float brake=IsKeyDown(KEY_SPACE) ? 1.0f : 0.0f;
-                        const float steer=(IsKeyDown(KEY_D)||IsKeyDown(KEY_RIGHT) ? 1.0f : 0.0f)
-                                         -(IsKeyDown(KEY_A)||IsKeyDown(KEY_LEFT) ? 1.0f : 0.0f);
+                        // Inverted steering as requested: A/Left -> +1, D/Right -> -1.
+                        const float steer=(IsKeyDown(KEY_A)||IsKeyDown(KEY_LEFT) ? 1.0f : 0.0f)
+                                         -(IsKeyDown(KEY_D)||IsKeyDown(KEY_RIGHT) ? 1.0f : 0.0f);
                         int steps=0;
                         bool running=true;
                         while (accumulator>=fixedDt && steps<12) {
@@ -187,10 +194,33 @@ int main(int argc, char** argv) {
                         state=rv_vehicle_get_state(car);
                         const Vector3 pos=toRay(state.position);
                         const Quaternion orientation=toRay(state.orientation);
-                        const Vector3 back=Vector3RotateByQuaternion(Vector3{0,2.8f,-8.5f},orientation);
-                        const Vector3 wanted=Vector3Add(pos,back);
-                        camera.position=Vector3Lerp(camera.position,wanted,0.08f);
-                        camera.target=Vector3Lerp(camera.target,Vector3Add(pos,Vector3{0,0.6f,0}),0.15f);
+                        // Camera follows chassis position but not its pitch/roll.
+                        // Mouse drag: orbit. Mouse wheel: distance. Home: reset view.
+                        if (IsMouseButtonDown(MOUSE_BUTTON_RIGHT)) {
+                            const Vector2 delta=GetMouseDelta();
+                            orbitYaw -= delta.x*0.005f;
+                            orbitPitch=std::clamp(orbitPitch+delta.y*0.005f,-1.25f,1.25f);
+                        }
+                        orbitDistance=std::clamp(orbitDistance-GetMouseWheelMove()*1.0f,3.0f,35.0f);
+                        if (IsKeyPressed(KEY_HOME)) {
+                            orbitYaw=0.0f;
+                            orbitPitch=0.28f;
+                            orbitDistance=9.0f;
+                        }
+                        const float heading=std::atan2(
+                            2.0f*(orientation.w*orientation.y+orientation.x*orientation.z),
+                            1.0f-2.0f*(orientation.y*orientation.y+orientation.z*orientation.z));
+                        const float angle=heading+orbitYaw;
+                        const float horizontal=orbitDistance*std::cos(orbitPitch);
+                        const Vector3 focusWanted=Vector3Add(pos,Vector3{0,0.6f,0});
+                        const float follow=1.0f-std::exp(-8.0f*frame);
+                        cameraFocus=Vector3Lerp(cameraFocus,focusWanted,follow);
+                        camera.target=cameraFocus;
+                        camera.position=Vector3Add(cameraFocus,Vector3{
+                            -std::sin(angle)*horizontal,
+                            std::sin(orbitPitch)*orbitDistance,
+                            -std::cos(angle)*horizontal
+                        });
 
                         int groundedCount=0;
                         int drivenGrounded=0;
@@ -213,7 +243,7 @@ int main(int argc, char** argv) {
                         DrawRectangle(10,10,670,200,Fade(BLACK,0.70f));
                         DrawText(TextFormat("Speed: %.1f km/h",state.speed_kmh),20,20,24,RAYWHITE);
                         DrawText("W/S accelerate/reverse  A/D steer  SPACE brake",20,54,16,RAYWHITE);
-                        DrawText("R reset  |  ESC quit  |  model: GLB, glTF, OBJ, IQM",20,75,16,RAYWHITE);
+                        DrawText("R reset | RMB orbit | Wheel zoom | HOME camera | ESC quit",20,75,16,RAYWHITE);
                         DrawText(TextFormat("INPUT: throttle %.2f | brake %.2f | steer %.2f",
                                             throttle,brake,steer),20,100,18,YELLOW);
                         DrawText(TextFormat("CONTACT: %d/%d wheels | rear driven grounded: %d/2",
