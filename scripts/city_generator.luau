@@ -17,13 +17,18 @@ end
 
 local function fit(model, maxWidth, maxDepth)
     local m = metrics[model]
-    if m == nil or m.width <= 0 or m.depth <= 0 then return nil end
-    return math.min(maxWidth / m.width, maxDepth / m.depth)
+    if m == nil or type(m.width) ~= "number" or type(m.depth) ~= "number"
+        or m.width <= 0 or m.depth <= 0 then
+        -- Never suppress the entire city when the Blender manifest is absent.
+        -- Legacy scale preserves visibility until measured dimensions are available.
+        return 1
+    end
+    return math.clamp(math.min(maxWidth / m.width, maxDepth / m.depth), 0.05, 8)
 end
 
 local function place(id, model, x, z, angle, width, depth)
     local scale = fit(model, width, depth)
-    if scale then CityWorld.add(id, model, x, 0, z, angle, scale) end
+    CityWorld.add(id, model, x, 0, z, angle, scale)
 end
 
 local function spawnChunk(cx, cz)
@@ -72,7 +77,7 @@ function cityUpdate(x, z)
     if not warned then
         warned = true
         if not metrics[1] then
-            print("[CITY] Missing model dimensions. Run FBX converter again.")
+            print("[CITY] Asset metrics unavailable: using fallback scale 1; run Blender converter.")
         end
     end
     local cx = math.floor(x / CHUNK_SIZE)
