@@ -330,3 +330,24 @@ cmake --build build --config Release --parallel
 cd build\\Release
 .\\racingcar_game.exe
 ```
+
+
+### Correção do personagem deformado (Mixamo)
+
+O skinning agora usa **um único espaço de coordenadas (modelo)** para as malhas e aplica o movimento do esqueleto **do próprio arquivo de animação**. Cada osso é retargetado pela pose de repouso da origem para a do personagem:
+
+```text
+skin = targetBind * inverse(sourceBind) * sourceAnimated * inverse(targetBind)
+pAnimated = sum(weights[i] * (skin[i] * pBind))
+```
+
+Na pose de repouso, `sourceAnimated == sourceBind`, então `skin == identidade`: a malha não se deforma antes de tocar uma animação. As normais também são atualizadas na GPU. Clips com menos de 80% dos ossos compatíveis são rejeitados com mensagem no console, para evitar deformações severas.
+
+Para Mixamo: exporte o **personagem com Skin** e os clips de movimento **Without Skin**, sempre do mesmo personagem/esqueleto. Se ainda houver problemas, forneça o FBX do personagem e o da animação, pois o teste numérico não substitui validação visual com esses arquivos.
+
+Execute o teste independente, sem abrir janela:
+
+```powershell
+cmake --build build --config Release --target rv_skinning_matrix_tests
+ctest --test-dir build -C Release -R mixamo_bind_pose --output-on-failure
+```
