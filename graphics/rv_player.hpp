@@ -13,6 +13,8 @@ public:
     void spawn(Vector3 position);
     void update(float dt, const Camera3D& camera);
     void draw() const;
+    void resolveCarCollision(Vector3 carPosition, Quaternion carRotation,
+                             Vector3 carHalfExtents);
     void unload();
     Vector3 position() const { return position_; }
     bool insideCar = false;
