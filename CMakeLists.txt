@@ -79,14 +79,35 @@ if(RV_WITH_GRAPHICS)
             GIT_SHALLOW TRUE)
     endif()
     FetchContent_MakeAvailable(raylib)
-    add_executable(racingcar_game graphics/main.cpp graphics/rv_model.cpp src/rv_luau.cpp)
+    # raylib 5.5 does not decode WebP. Decode WebP via libwebp.
+    set(WEBP_BUILD_ANIM_UTILS OFF CACHE BOOL "" FORCE)
+    set(WEBP_BUILD_CWEBP OFF CACHE BOOL "" FORCE)
+    set(WEBP_BUILD_DWEBP OFF CACHE BOOL "" FORCE)
+    set(WEBP_BUILD_GIF2WEBP OFF CACHE BOOL "" FORCE)
+    set(WEBP_BUILD_IMG2WEBP OFF CACHE BOOL "" FORCE)
+    set(WEBP_BUILD_VWEBP OFF CACHE BOOL "" FORCE)
+    set(WEBP_BUILD_WEBPMUX OFF CACHE BOOL "" FORCE)
+    set(WEBP_BUILD_EXTRAS OFF CACHE BOOL "" FORCE)
+    set(WEBP_BUILD_WEBPINFO OFF CACHE BOOL "" FORCE)
+    set(WEBP_BUILD_LIBWEBPMUX OFF CACHE BOOL "" FORCE)
+    set(WEBP_BUILD_WEBP_JS OFF CACHE BOOL "" FORCE)
+    if(WEBP_SOURCE_DIR)
+        FetchContent_Declare(libwebp SOURCE_DIR "${WEBP_SOURCE_DIR}")
+    else()
+        FetchContent_Declare(libwebp
+            GIT_REPOSITORY https://github.com/webmproject/libwebp.git
+            GIT_TAG v1.5.0
+            GIT_SHALLOW TRUE)
+    endif()
+    FetchContent_MakeAvailable(libwebp)
+    add_executable(racingcar_game graphics/main.cpp graphics/rv_model.cpp graphics/webp_texture.cpp src/rv_luau.cpp)
     target_include_directories(racingcar_game PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/include"
         "${CMAKE_CURRENT_SOURCE_DIR}/src"
         "${CMAKE_CURRENT_SOURCE_DIR}/graphics"
         "${luau_SOURCE_DIR}/VM/include"
         "${luau_SOURCE_DIR}/Compiler/include")
-    target_link_libraries(racingcar_game PRIVATE raycast_vehicle_static raylib Luau.VM Luau.Compiler)
+    target_link_libraries(racingcar_game PRIVATE raycast_vehicle_static raylib webpdecoder Luau.VM Luau.Compiler)
     target_compile_definitions(racingcar_game PRIVATE
         RV_DEFAULT_GAME_SCRIPT="${CMAKE_CURRENT_SOURCE_DIR}/scripts/racing_game.luau")
 endif()
