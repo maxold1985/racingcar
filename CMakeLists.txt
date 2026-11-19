@@ -100,7 +100,7 @@ if(RV_WITH_GRAPHICS)
             GIT_SHALLOW TRUE)
     endif()
     FetchContent_MakeAvailable(libwebp)
-    add_executable(racingcar_game graphics/main.cpp graphics/rv_model.cpp graphics/webp_texture.cpp src/rv_luau.cpp)
+    add_executable(racingcar_game graphics/main.cpp graphics/rv_model.cpp graphics/rv_player.cpp graphics/webp_texture.cpp src/rv_luau.cpp)
     target_include_directories(racingcar_game PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/include"
         "${CMAKE_CURRENT_SOURCE_DIR}/src"
