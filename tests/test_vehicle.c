@@ -1,4 +1,7 @@
 #include "rv_physics.h"
+#ifdef NDEBUG
+#undef NDEBUG // Keep runtime checks active in Release builds.
+#endif
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
