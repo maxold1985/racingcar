@@ -46,11 +46,11 @@ local function spawnChunk(cx, cz)
             local roadX = ix == 0 or ix == 6
             local roadZ = iz == 0 or iz == 6
             if roadX and roadZ then
-                place(id, 2, x, z, 0, 15.8, 15.8)
+                CityWorld.add(id, 10, x, 0, z, 0, 1)
             elseif roadX then
-                place(id, 1, x, z, 0, 15.8, 15.8)
+                CityWorld.add(id, 9, x, 0, z, 0, 1)
             elseif roadZ then
-                place(id, 1, x, z, 90, 15.8, 15.8)
+                CityWorld.add(id, 9, x, 0, z, 90, 1)
             end
         end
     end
