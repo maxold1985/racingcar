@@ -89,27 +89,19 @@ void gatherPose(const aiNode* node, const aiMatrix4x4& parent,
         aiQuaternion rotation;
         local.Decompose(scale,rotation,position);
         const aiNodeAnim* c=channel->second;
-        const aiMatrix4x4 bindLocal=local;
+        // aiNodeAnim stores the complete animated local TRS. FBX pivot /
+        // pre-rotation transforms are represented by separate parent nodes.
+        // Frame zero is a running pose, NOT the bind pose: do not
+        // pre-multiply by inverse(animationAtZero).
         const aiVector3D p=samplePosition(c,tick,position);
         const aiQuaternion q=sampleRotation(c,tick,rotation);
-        const aiVector3D s=sampleScale(c,tick,scale);
-        local=aiMatrix4x4(s.x,0,0,0, 0,s.y,0,0, 0,0,s.z,0, 0,0,0,1);
-        local=aiMatrix4x4(q.GetMatrix())*local;
-        local.a4=p.x;local.b4=p.y;local.c4=p.z;
-        // FBX channels may use a different local origin than the node's
-        // imported bind transform. Apply relative motion from frame zero
-        // instead of replacing the bind transform with absolute FBX keys.
-        const aiVector3D p0=samplePosition(c,0.0,position);
-        const aiQuaternion q0=sampleRotation(c,0.0,rotation);
-        const aiVector3D s0=sampleScale(c,0.0,scale);
-        aiMatrix4x4 first(s0.x,0,0,0, 0,s0.y,0,0,
-                          0,0,s0.z,0, 0,0,0,1);
-        first=aiMatrix4x4(q0.GetMatrix())*first;
-        first.a4=p0.x;first.b4=p0.y;first.c4=p0.z;
-        if(std::abs(first.Determinant())>1e-12f) {
-            first.Inverse();
-            local=bindLocal*first*local;
-        }
+        const aiVector3D vscale=sampleScale(c,tick,scale);
+        aiMatrix4x4 scaling(vscale.x,0,0,0, 0,vscale.y,0,0,
+                            0,0,vscale.z,0, 0,0,0,1);
+        local=aiMatrix4x4(q.GetMatrix())*scaling;
+        local.a4=p.x;
+        local.b4=p.y;
+        local.c4=p.z;
     }
     const aiMatrix4x4 world=parent*local;
     // Auxiliary FBX nodes retain unique keys (e.g. Hips_$AssimpFbx$_Rotation).
@@ -120,6 +112,30 @@ void gatherPose(const aiNode* node, const aiMatrix4x4& parent,
     }
     for(unsigned i=0;i<node->mNumChildren;++i)
         gatherPose(node->mChildren[i],world,channels,tick,out,meshNodes);
+}
+const aiAnimation* selectAnimation(const aiScene* scene) {
+    if(!scene) return nullptr;
+    const aiAnimation* best=nullptr;
+    for(unsigned i=0;i<scene->mNumAnimations;++i) {
+        const aiAnimation* candidate=scene->mAnimations[i];
+        if(!candidate || !candidate->mNumChannels) continue;
+        // Mixamo FBX files can contain an empty "Take 001" stack before
+        // the populated "mixamo.com" take. Prefer real animated channels.
+        if(!best || candidate->mNumChannels>best->mNumChannels ||
+           (candidate->mNumChannels==best->mNumChannels &&
+            candidate->mDuration>best->mDuration))
+            best=candidate;
+    }
+    return best;
+}
+// Measure whether the FBX mesh-space inverse bind matches the imported
+// rest hierarchy, using dimensionless affine error (translation in FBX
+// units may be non-zero even when rotations are valid).
+float bindMatrixError(const aiMatrix4x4& m) {
+    return std::abs(m.a1-1)+std::abs(m.b2-1)+std::abs(m.c3-1)+
+           std::abs(m.a2)+std::abs(m.a3)+std::abs(m.b1)+
+           std::abs(m.b3)+std::abs(m.c1)+std::abs(m.c2)+
+           std::abs(m.a4)+std::abs(m.b4)+std::abs(m.c4);
 }
 Channels getChannels(const aiAnimation* a) {
     Channels channels;
@@ -204,9 +220,24 @@ bool RVAnimation::loadCharacter(const char* path) {
             bone.targetBind=found->second;
             bone.targetBindInverse=found->second;
             bone.targetBindInverse.Inverse();
-            // Retain the importer offset for diagnostics; animation uses
-            // bind matrices from the matching node hierarchy instead.
-            bone.offsetInModelSpace=input->mOffsetMatrix;
+            // aiBone::mOffsetMatrix converts mesh-local bind vertices to
+            // bone-local coordinates. Mesh vertices were already transformed
+            // into model-root space with meshBind, so compensate precisely
+            // once with inverse(meshBind).
+            aiMatrix4x4 inverseMesh=meshBind;
+            if(std::abs(inverseMesh.Determinant())>1e-12f) {
+                inverseMesh.Inverse();
+                bone.offsetInModelSpace=input->mOffsetMatrix*inverseMesh;
+                // Some FBX exporters store non-bind node transforms. In
+                // that case use the verified rest hierarchy instead, so
+                // unanimated geometry is never stretched.
+                const aiMatrix4x4 bindCheck=bone.targetBind*bone.offsetInModelSpace;
+                if(!std::isfinite(bindMatrixError(bindCheck)) ||
+                   bindMatrixError(bindCheck)>0.1f)
+                    bone.offsetInModelSpace=bone.targetBindInverse;
+            } else {
+                bone.offsetInModelSpace=bone.targetBindInverse;
+            }
             for(unsigned w=0;w<input->mNumWeights;++w) {
                 const auto& weight=input->mWeights[w];
                 if(weight.mVertexId<src->mNumVertices && weight.mWeight>0)
@@ -226,11 +257,11 @@ bool RVAnimation::loadCharacter(const char* path) {
     const float height=high.y-low.y;
     scale_=(height>0.001f && std::isfinite(height))?1.75f/height:1.0f;
     modelValid_=true;
-    if(scene_->HasAnimations()) {
+    if(const aiAnimation* animation=selectAnimation(scene_)) {
         Clip embedded;
         embedded.source=scene_;
         embedded.sameSkeleton=true;
-        embedded.animation=scene_->mAnimations[0];
+        embedded.animation=animation;
         embedded.channels=getChannels(embedded.animation);
         embedded.sourceBind=targetBind_;
         for(const auto& kv:embedded.sourceBind) {
@@ -259,10 +290,10 @@ bool RVAnimation::loadClip(const std::string& name,const char* path) {
     std::error_code pathError;
     const bool sameFile=fs::equivalent(fs::u8path(characterPath_),
                                        fs::u8path(path),pathError);
-    if(!pathError && sameFile && scene_->HasAnimations()) {
+    if(!pathError && sameFile && selectAnimation(scene_)) {
         Clip clip;
         clip.source=scene_;
-        clip.animation=scene_->mAnimations[0];
+        clip.animation=selectAnimation(scene_);
         clip.channels=getChannels(clip.animation);
         clip.sourceBind=targetBind_;
         for(const auto& kv:clip.sourceBind) {
@@ -278,8 +309,9 @@ bool RVAnimation::loadClip(const std::string& name,const char* path) {
             clip.animation->mTicksPerSecond:25.0;
         clips_[name]=std::move(clip);
         std::fprintf(stderr,
-            "Animation %s: reusing character FBX skeleton and embedded clip\n",
-            name.c_str());
+            "Animation %s: FBX take '%s' (%u channels, %.2f ticks) from character\n",
+            name.c_str(),clip.animation->mName.C_Str(),
+            clip.animation->mNumChannels,clip.animation->mDuration);
         return true;
     }
     Clip clip;
@@ -290,7 +322,7 @@ bool RVAnimation::loadClip(const std::string& name,const char* path) {
                      path,clip.importer->GetErrorString());
         return false;
     }
-    clip.animation=clip.source->mAnimations[0];
+    clip.animation=selectAnimation(clip.source);
     if(!clip.animation || clip.animation->mNumChannels==0) {
         std::fprintf(stderr,"Animation has no bone channels: %s\n",path);
         return false;
@@ -431,11 +463,9 @@ void RVAnimation::update(float dt) {
                 //
                 // Use root/model-space bind vertices for every mesh.
                 if(clip.sameSkeleton) {
-                    // The rest global node matrix is the inverse bind for
-                    // vertices already baked into model-root coordinates.
-                    // This guarantees skin(rest) == identity, even when FBX
-                    // mOffsetMatrix includes geometric/pre-rotation transforms.
-                    skin=current->second*bone.targetBindInverse;
+                    // Model-root animated global transform times mesh-space
+                    // inverse bind. Frame zero can be a running pose.
+                    skin=current->second*bone.offsetInModelSpace;
                 } else {
                     // Different FBX: source motion delta conjugated into the
                     // target character's bind coordinate system.
