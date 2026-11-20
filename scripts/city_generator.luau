@@ -70,22 +70,24 @@ local function spawnChunk(cx,cz)
         end
     end
 
-    -- One building per interior lot. No buildings inside road corridors.
+    -- Populate every city block with a deterministic 3x3 building grid.
+    -- Block interior is 72x72m; 18m lots leave space around each building.
+    -- Each lot gets its own building and never crosses the road corridor.
+    local LOT_COUNT = 3
+    local LOT_STEP = 18
+    local LOT_FIRST = 27
+    local MAX_FOOTPRINT = 16
     for ix=0,1 do
         for iz=0,1 do
             local bx,bz=ox+ix*BLOCK_SPACING,oz+iz*BLOCK_SPACING
-            for lx=0,1 do
-                for lz=0,1 do
-                    local x=bx+27+lx*36
-                    local z=bz+27+lz*36
-                    if math.abs(x)>56 or math.abs(z)>56 then
-                        local n=hash(math.floor(x),math.floor(z),1)
-                        if n%4~=0 then
-                            local model=4+n%3
-                            CityWorld.add(id,model,x,0,z,(n%4)*90,
-                                buildingScale(model,27,27))
-                        end
-                    end
+            for lx=0,LOT_COUNT-1 do
+                for lz=0,LOT_COUNT-1 do
+                    local x=bx+LOT_FIRST+lx*LOT_STEP
+                    local z=bz+LOT_FIRST+lz*LOT_STEP
+                    local n=hash(math.floor(x),math.floor(z),1)
+                    local model=4+n%3
+                    CityWorld.add(id,model,x,0,z,(n%4)*90,
+                        buildingScale(model,MAX_FOOTPRINT,MAX_FOOTPRINT))
                 end
             end
         end
