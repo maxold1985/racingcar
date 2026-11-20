@@ -113,6 +113,127 @@ static void loadOSMRoads() {
     osmRoadsLoaded=!osmRoads.empty();
     std::fprintf(stderr,"[OSM] Loaded %zu Londrina road segments\\n",osmRoads.size());
 }
+
+ // Lightweight OSM traffic: endpoint graph, deterministic random junction choices.
+struct TrafficEdge { int a=-1,b=-1; };
+struct TrafficNode { Vector3 position{}; std::vector<int> edges; };
+struct TrafficAgent { int node=-1, edge=-1, destination=-1; float distance=0, speed=9; Vector3 position{}; float heading=0; };
+static std::vector<TrafficNode> trafficNodes;
+static std::vector<TrafficEdge> trafficEdges;
+static std::vector<TrafficAgent> trafficAgents;
+static std::uint32_t trafficSeed=0x6c6f6e64u;
+static std::uint32_t trafficRandom() {
+    trafficSeed^=trafficSeed<<13; trafficSeed^=trafficSeed>>17; trafficSeed^=trafficSeed<<5;
+    return trafficSeed;
+}
+static std::int64_t trafficKey(Vector3 p) {
+    const std::int64_t x=static_cast<std::int64_t>(std::llround(p.x));
+    const std::int64_t z=static_cast<std::int64_t>(std::llround(p.z));
+    return (x<<32)^static_cast<std::uint32_t>(z);
+}
+static void initTraffic() {
+    trafficNodes.clear(); trafficEdges.clear(); trafficAgents.clear();
+    std::unordered_map<std::int64_t,int> lookup;
+    const auto nodeFor=[&](Vector3 p)->int {
+        const auto key=trafficKey(p);
+        const auto found=lookup.find(key);
+        if (found!=lookup.end()) return found->second;
+        const int id=static_cast<int>(trafficNodes.size());
+        lookup.emplace(key,id);
+        trafficNodes.push_back({p,{}});
+        return id;
+    };
+    for (const auto& road:osmRoads) {
+        if (Vector3Distance(road.a,road.b)<1.0f) continue;
+        const int a=nodeFor(road.a), b=nodeFor(road.b);
+        if (a==b) continue;
+        const int id=static_cast<int>(trafficEdges.size());
+        trafficEdges.push_back({a,b});
+        trafficNodes[a].edges.push_back(id);
+        trafficNodes[b].edges.push_back(id);
+    }
+    std::fprintf(stderr,"[Traffic] %zu nodes, %zu edges\\n",trafficNodes.size(),trafficEdges.size());
+}
+static bool trafficNext(TrafficAgent& car) {
+    if (car.node<0 || car.node>=static_cast<int>(trafficNodes.size())) return false;
+    const auto& edges=trafficNodes[car.node].edges;
+    if (edges.empty()) return false;
+    // Avoid immediate U-turns if the junction offers an alternative.
+    int chosen=-1;
+    for (int attempt=0;attempt<8;++attempt) {
+        const int candidate=edges[trafficRandom()%edges.size()];
+        const auto& e=trafficEdges[candidate];
+        const int other=e.a==car.node?e.b:e.a;
+        if (other!=car.destination || edges.size()==1) { chosen=candidate; break; }
+    }
+    if (chosen<0) chosen=edges[trafficRandom()%edges.size()];
+    const auto& e=trafficEdges[chosen];
+    car.destination=e.a==car.node?e.b:e.a;
+    car.edge=chosen;
+    car.distance=0;
+    return true;
+}
+static void updateTraffic(float dt,Vector3 focus) {
+    if (trafficEdges.empty()) return;
+    constexpr int count=35;
+    constexpr float activeRadius=300.0f;
+    if (trafficAgents.empty()) {
+        trafficAgents.resize(count);
+        for (auto& car:trafficAgents) car.node=-1;
+    }
+    // Only pick spawn roads near the player; avoid iterating the full network per car.
+    std::vector<int> nearby;
+    nearby.reserve(512);
+    for (int i=0;i<static_cast<int>(trafficEdges.size());++i) {
+        const auto& e=trafficEdges[i];
+        const auto& a=trafficNodes[e.a].position;
+        const auto& b=trafficNodes[e.b].position;
+        const float mx=(a.x+b.x)*0.5f-focus.x, mz=(a.z+b.z)*0.5f-focus.z;
+        if (mx*mx+mz*mz<activeRadius*activeRadius) nearby.push_back(i);
+    }
+    for (auto& car:trafficAgents) {
+        const float fx=car.position.x-focus.x, fz=car.position.z-focus.z;
+        if (car.node<0 || fx*fx+fz*fz>(activeRadius+80)*(activeRadius+80)) {
+            if (nearby.empty()) { car.node=-1; continue; }
+            const auto& e=trafficEdges[nearby[trafficRandom()%nearby.size()]];
+            car.node=(trafficRandom()&1)?e.a:e.b;
+            car.destination=-1;
+            car.speed=7.0f+static_cast<float>(trafficRandom()%700)/100.0f;
+            car.position=trafficNodes[car.node].position;
+            if (!trafficNext(car)) {car.node=-1;continue;}
+        }
+        float remaining=car.speed*dt;
+        for (int step=0;step<8 && remaining>0.0f;++step) {
+            const Vector3 a=trafficNodes[car.node].position;
+            const Vector3 b=trafficNodes[car.destination].position;
+            const Vector3 delta=Vector3Subtract(b,a);
+            const float length=Vector3Length(delta);
+            if (length<0.001f) {car.node=car.destination;if(!trafficNext(car))break;continue;}
+            const float move=std::min(remaining,length-car.distance);
+            car.distance+=move; remaining-=move;
+            const float t=std::clamp(car.distance/length,0.0f,1.0f);
+            car.position=Vector3Lerp(a,b,t);
+            car.position.y=0.85f;
+            car.heading=std::atan2(delta.x,delta.z)*RAD2DEG;
+            if (car.distance>=length-0.001f) {
+                car.node=car.destination;
+                if (!trafficNext(car)) {car.node=-1;break;}
+            }
+        }
+    }
+}
+static void drawTraffic() {
+    for (const auto& car:trafficAgents) {
+        if (car.node<0) continue;
+        rlPushMatrix();
+        rlTranslatef(car.position.x,car.position.y,car.position.z);
+        rlRotatef(car.heading,0,1,0);
+        DrawCubeV({0,0,0},{1.65f,1.35f,3.7f},Color{190,55,45,255});
+        DrawCubeV({0,0.82f,-0.25f},{1.4f,0.5f,1.75f},Color{70,115,150,255});
+        rlPopMatrix();
+    }
+}
+
 struct OSMBuilding { Vector3 center; Vector3 dimensions; };
 static std::vector<OSMBuilding> osmBuildings;
 static void loadOSMBuildings() {
@@ -676,6 +797,7 @@ int main(int argc, char** argv) {
     if (!IsWindowReady()) return 1;
     SetTargetFPS(120);
     loadOSMRoads();
+    initTraffic();
     loadOSMBuildings();
     loadOSMBuildingAssets(config);
     indexOSM();
@@ -995,6 +1117,7 @@ int main(int argc, char** argv) {
                         if (IsKeyPressed(KEY_F2)) cityMapExpanded=!cityMapExpanded;
                         float frame=std::min(GetFrameTime(),0.1f);
                         accumulator+=frame;
+                        updateTraffic(frame,camera.position);
                         // Garage shop: U purchases a permanent payout upgrade.
                         // Garage access is free: stop the car inside the marked zone
                         // or walk into it. Money is only required for purchases.
@@ -1538,6 +1661,7 @@ int main(int argc, char** argv) {
                             // washes out roads and buildings.
                             drawOSMRoads(camera.position);
                             drawOSMBuildings(camera.position);
+                            drawTraffic();
                         } else {
                             if (IsShaderValid(cityFogShader)) BeginShaderMode(cityFogShader);
                             drawCity(camera);
