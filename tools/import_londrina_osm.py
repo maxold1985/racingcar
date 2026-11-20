@@ -35,11 +35,11 @@ def main():
     bbox = (LAT0-lat_delta, LON0-lon_delta, LAT0+lat_delta, LON0+lon_delta)
     roads = "|".join(ROAD_WIDTHS)
     query = (
-        "[out:json][timeout:180];"
+        "[out:json][timeout:180];("
         f'way["highway"~"^({roads})$"]'
         f"({bbox[0]:.7f},{bbox[1]:.7f},{bbox[2]:.7f},{bbox[3]:.7f});"
         f'way["building"]({bbox[0]:.7f},{bbox[1]:.7f},{bbox[2]:.7f},{bbox[3]:.7f});'
-        "out geom;"
+        ");out geom;"
     )
     req = urllib.request.Request(
         "https://overpass.kumi.systems/api/interpreter",
