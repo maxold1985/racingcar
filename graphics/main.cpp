@@ -32,6 +32,41 @@ struct CityInstance { int model; Vector3 position; float rotation; float scale; 
 struct CitySector { std::vector<CityInstance> instances; };
 struct CityChunk { std::unordered_map<std::int64_t,CitySector> sectors; std::size_t count=0; };
 static std::unordered_map<int,CityChunk> cityChunks;
+static Shader cityFogShader{};
+static int cityFogCameraLoc=-1;
+static const char* cityFogVertex=R"GLSL(
+#version 330
+in vec3 vertexPosition;
+in vec2 vertexTexCoord;
+in vec4 vertexColor;
+uniform mat4 mvp;
+uniform mat4 matModel;
+out vec2 fragTexCoord;
+out vec4 fragColor;
+out vec3 worldPosition;
+void main() {
+    worldPosition=(matModel*vec4(vertexPosition,1.0)).xyz;
+    fragTexCoord=vertexTexCoord;
+    fragColor=vertexColor;
+    gl_Position=mvp*vec4(vertexPosition,1.0);
+}
+)GLSL";
+static const char* cityFogFragment=R"GLSL(
+#version 330
+in vec2 fragTexCoord;
+in vec4 fragColor;
+in vec3 worldPosition;
+uniform sampler2D texture0;
+uniform vec4 colDiffuse;
+uniform vec3 fogCamera;
+out vec4 finalColor;
+void main() {
+    vec4 surface=texture(texture0,fragTexCoord)*colDiffuse*fragColor;
+    float distanceToCamera=distance(worldPosition.xz,fogCamera.xz);
+    float fog=smoothstep(70.0,195.0,distanceToCamera);
+    finalColor=vec4(mix(surface.rgb,vec3(0.49,0.706,0.863),fog),surface.a);
+}
+)GLSL";
 static std::unordered_map<int,Model> cityModels;
 static std::unordered_map<int,BoundingBox> cityBounds;
 static std::unordered_map<int,bool> cityMissing;
@@ -124,6 +159,10 @@ static void loadOneCityModel() {
                     return;
                 }
                 Model model=LoadModel(file.c_str());
+                if (IsShaderValid(cityFogShader)) {
+                    for(int materialIndex=0;materialIndex<model.materialCount;++materialIndex)
+                        model.materials[materialIndex].shader=cityFogShader;
+                }
                 if (IsModelValid(model)) {
                     const BoundingBox loadedBounds=GetModelBoundingBox(model);
                     cityBounds.emplace(instance.model,loadedBounds);
@@ -169,6 +208,10 @@ static void drawCity(const Camera3D& camera) {
     const float forwardZ=viewLength>0.001f?view.z/viewLength:0.0f;
     constexpr float buildingDetailDistance2=85.0f*85.0f;
     loadOneCityModel();
+    if (IsShaderValid(cityFogShader) && cityFogCameraLoc>=0) {
+        const float position[3]={camera.position.x,camera.position.y,camera.position.z};
+        SetShaderValue(cityFogShader,cityFogCameraLoc,position,SHADER_UNIFORM_VEC3);
+    }
     const float radius2=cityDrawRadius*cityDrawRadius;
     for (const auto& chunk:cityChunks) {
         for (const auto& sector:chunk.second.sectors) {
@@ -415,6 +458,9 @@ int main(int argc, char** argv) {
     InitWindow(1280,720,"racingcar - Luau raycast racing");
     if (!IsWindowReady()) return 1;
     SetTargetFPS(120);
+    cityFogShader=LoadShaderFromMemory(cityFogVertex,cityFogFragment);
+    if (IsShaderValid(cityFogShader))
+        cityFogCameraLoc=GetShaderLocation(cityFogShader,"fogCamera");
 
     Texture2D pavement{};
     bool pavementLoaded=false;
@@ -1248,7 +1294,9 @@ int main(int argc, char** argv) {
                             DrawPlane(Vector3{0,-0.025f,0},Vector2{1500,1500},Color{65,100,65,255});
                             DrawGrid(80,5);
                         }
+                        if (IsShaderValid(cityFogShader)) BeginShaderMode(cityFogShader);
                         drawCity(camera);
+                        if (IsShaderValid(cityFogShader)) EndShaderMode();
                         // WHITE preserves the imported glTF/GLB base-color textures and materials.
                         // A red tint multiplies every material color and makes the car red.
                         // The visible wheels are part of the GLB chassis mesh;
@@ -1477,6 +1525,7 @@ int main(int argc, char** argv) {
         // UnloadModel owns its material textures, including pavement.
         UnloadModel(pavementModel);
     }
+    if (IsShaderValid(cityFogShader)) UnloadShader(cityFogShader);
     CloseWindow();
     return status;
 }
