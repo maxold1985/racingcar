@@ -42,8 +42,8 @@ local function spawnChunk(cx,cz)
             for segment=0,5 do
                 local distance=15+12*segment
                 -- Original straight GLB longitudinal axis is Z.
-                CityWorld.add(id,1,x,0,z+distance,0,1)
-                CityWorld.add(id,1,x+distance,0,z,90,1)
+                CityWorld.add(id,1,x,0,z+distance,180,1)
+                CityWorld.add(id,1,x+distance,0,z,270,1)
             end
         end
     end
