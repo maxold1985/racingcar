@@ -132,6 +132,60 @@ static void drawOSMRoads(Vector3 cameraPosition) {
         rlPopMatrix();
     }
 }
+// Full imported-map overview is rasterized once, not redrawn every frame.
+static RenderTexture2D cityMapTexture{};
+static float cityMapMinX=0,cityMapMinZ=0,cityMapSpan=1;
+static constexpr int cityMapPixels=1024;
+static void buildCityMap() {
+    if (osmRoads.empty()) return;
+    float minX=osmRoads.front().a.x,maxX=minX;
+    float minZ=osmRoads.front().a.z,maxZ=minZ;
+    for (const auto& road:osmRoads) {
+        for (const Vector3 p:{road.a,road.b}) {
+            minX=std::min(minX,p.x);maxX=std::max(maxX,p.x);
+            minZ=std::min(minZ,p.z);maxZ=std::max(maxZ,p.z);
+        }
+    }
+    cityMapMinX=minX;
+    cityMapMinZ=minZ;
+    cityMapSpan=std::max({maxX-minX,maxZ-minZ,1.0f})*1.04f;
+    cityMapMinX-=(cityMapSpan-(maxX-minX))*0.5f;
+    cityMapMinZ-=(cityMapSpan-(maxZ-minZ))*0.5f;
+    cityMapTexture=LoadRenderTexture(cityMapPixels,cityMapPixels);
+    if (!IsRenderTextureValid(cityMapTexture)) return;
+    BeginTextureMode(cityMapTexture);
+    ClearBackground(Color{28,38,45,255});
+    const float scale=cityMapPixels/cityMapSpan;
+    for (const auto& road:osmRoads) {
+        const Vector2 a{(road.a.x-cityMapMinX)*scale,(road.a.z-cityMapMinZ)*scale};
+        const Vector2 b{(road.b.x-cityMapMinX)*scale,(road.b.z-cityMapMinZ)*scale};
+        DrawLineEx(a,b,std::max(1.0f,road.width*scale),Color{165,174,180,255});
+    }
+    EndTextureMode();
+}
+static void drawCityMap(Vector3 playerPosition,bool expanded) {
+    if (!IsRenderTextureValid(cityMapTexture)) return;
+    const int screenW=GetScreenWidth(),screenH=GetScreenHeight();
+    const float size=expanded?static_cast<float>(std::min(screenW-80,screenH-100)):220.0f;
+    const float left=expanded?(screenW-size)*0.5f:static_cast<float>(screenW)-size-20.0f;
+    const float top=expanded?(screenH-size)*0.5f:20.0f;
+    if (expanded) DrawRectangle(0,0,screenW,screenH,Fade(BLACK,0.85f));
+    DrawRectangleRec({left-4,top-4,size+8,size+8},Color{9,13,19,255});
+    DrawTexturePro(cityMapTexture.texture,
+        {0,0,static_cast<float>(cityMapPixels),-static_cast<float>(cityMapPixels)},
+        {left,top,size,size},{0,0},0,WHITE);
+    DrawRectangleLinesEx({left,top,size,size},2,Color{210,220,226,255});
+    const float u=(playerPosition.x-cityMapMinX)/cityMapSpan;
+    const float v=(playerPosition.z-cityMapMinZ)/cityMapSpan;
+    if (u>=0 && u<=1 && v>=0 && v<=1) {
+        const Vector2 marker{left+u*size,top+v*size};
+        DrawCircleV(marker,expanded?8.0f:6.0f,RED);
+        DrawCircleLines(static_cast<int>(marker.x),static_cast<int>(marker.y),
+                        expanded?12.0f:9.0f,WHITE);
+    }
+    DrawText(expanded?"LONDRINA - MAPA IMPORTADO (M: FECHAR)":"LONDRINA  [M: MAPA]",
+             static_cast<int>(left),static_cast<int>(top+size+8),expanded?18:14,RAYWHITE);
+}
 static int cityAdd(lua_State* L) {
     const int chunk=static_cast<int>(luaL_checkinteger(L,1));
     const int model=static_cast<int>(luaL_checkinteger(L,2));
@@ -500,6 +554,7 @@ int main(int argc, char** argv) {
     if (!IsWindowReady()) return 1;
     SetTargetFPS(120);
     loadOSMRoads();
+    buildCityMap();
     cityFogShader=LoadShaderFromMemory(cityFogVertex,cityFogFragment);
     if (IsShaderValid(cityFogShader))
         cityFogCameraLoc=GetShaderLocation(cityFogShader,"fogCamera");
@@ -810,7 +865,9 @@ int main(int argc, char** argv) {
                     Vector3 grabEnd{0,0,0};
                     bool showGrabRay=false;
 
+                    bool cityMapExpanded=false;
                     while (!WindowShouldClose()) {
+                        if (IsKeyPressed(KEY_M)) cityMapExpanded=!cityMapExpanded;
                         float frame=std::min(GetFrameTime(),0.1f);
                         accumulator+=frame;
                         // Garage shop: U purchases a permanent payout upgrade.
@@ -1418,6 +1475,7 @@ int main(int argc, char** argv) {
                         // Tire meshes intentionally hidden. Physics raycasts,
                         // steering, anti-roll and tire forces still run normally.
                         EndMode3D();
+                        if (osmRoadsLoaded) drawCityMap(player.insideCar?toRay(state.position):player.position(),cityMapExpanded);
                         DrawRectangle(10,10,670,226,Fade(BLACK,0.70f));
                         DrawText(TextFormat("Speed: %.1f km/h",state.speed_kmh),20,20,24,RAYWHITE);
                         DrawText(player.insideCar ?
@@ -1568,6 +1626,7 @@ int main(int argc, char** argv) {
         // UnloadModel owns its material textures, including pavement.
         UnloadModel(pavementModel);
     }
+    if (IsRenderTextureValid(cityMapTexture)) UnloadRenderTexture(cityMapTexture);
     if (IsShaderValid(cityFogShader)) UnloadShader(cityFogShader);
     CloseWindow();
     return status;
