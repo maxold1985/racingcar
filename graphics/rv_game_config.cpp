@@ -55,6 +55,14 @@ bool LoadGameConfig(const std::string& filename, RVGameConfig& out) {
         else if(key=="walking") target=&loaded.walking;
         else if(key=="jump") target=&loaded.jump;
         else if(key=="enter_car") target=&loaded.enterCar;
+        else if(key.rfind("building_slot_",0)==0) {
+            const std::string suffix=key.substr(14);
+            const bool digits=!suffix.empty() && std::all_of(suffix.begin(),suffix.end(),[](unsigned char c){return std::isdigit(c)!=0;});
+            if(digits) {
+                const unsigned long slot=std::stoul(suffix);
+                if(slot>=1 && slot<=loaded.buildingSlots.size()) target=&loaded.buildingSlots[slot-1];
+            }
+        }
         else {
             std::fprintf(stderr,"Config %s:%u: unknown key '%s'\n",
                          filename.c_str(),lineNumber,key.c_str());
