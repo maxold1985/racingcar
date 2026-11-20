@@ -151,29 +151,56 @@ static void drawCity(Vector3 cameraPosition) {
                 const float iz=instance.position.z-cameraPosition.z;
                 if (ix*ix+iz*iz>radius2) continue;
                 if (instance.model==9) {
-                    // Urban block: pavement with four raised sidewalk edges.
-                    // Dimensions are supplied in scaleX/scaleZ (world metres).
+                    // Block occupies the 84m gap between 6m roads.
+                    // Four 18x18 intersection footprints overlap its corners:
+                    // cut a 6x6 square from every corner instead of covering
+                    // intersection asphalt/markings with procedural pavement.
                     const float w=instance.scaleX, d=instance.scaleZ;
-                    const float x=instance.position.x,z=instance.position.z;
+                    const float x=instance.position.x, z=instance.position.z;
+                    const float cut=6.0f;
+                    const float halfW=w*0.5f, halfD=d*0.5f;
                     const Color pavement{111,112,108,255};
                     const Color sidewalk{169,167,155,255};
                     const Color curb{135,133,123,255};
-                    // The block ends at +/-34m; roads/intersections remain unobstructed.
-                    DrawCubeV({x,-0.045f,z},{w,0.07f,d},pavement);
+                    // Imported GLBs have minY=-0.15 and are shifted to minY=0.
+                    // Their road surface is at y=0; keep block ground below it.
+                    auto ground=[&](float px,float pz,float sx,float sz) {
+                        if(sx>0.0f && sz>0.0f)
+                            DrawCubeV({px,-0.045f,pz},{sx,0.07f,sz},pavement);
+                    };
+                    // Cross-shaped footprint: center strip plus two side strips.
+                    ground(x,z,w-2*cut,d);
+                    ground(x-halfW+cut*0.5f,z,cut,d-2*cut);
+                    ground(x+halfW-cut*0.5f,z,cut,d-2*cut);
                     const float edge=1.7f;
-                    DrawCubeV({x-w*0.5f+edge*0.5f,0.005f,z},
-                        {edge,0.09f,d},sidewalk);
-                    DrawCubeV({x+w*0.5f-edge*0.5f,0.005f,z},
-                        {edge,0.09f,d},sidewalk);
-                    DrawCubeV({x,0.005f,z-d*0.5f+edge*0.5f},
-                        {w-2*edge,0.09f,edge},sidewalk);
-                    DrawCubeV({x,0.005f,z+d*0.5f-edge*0.5f},
-                        {w-2*edge,0.09f,edge},sidewalk);
-                    // Subtle curbstone strip distinguishes sidewalk from pavement.
-                    DrawCubeV({x-w*0.5f,0.005f,z},{0.2f,0.10f,d},curb);
-                    DrawCubeV({x+w*0.5f,0.005f,z},{0.2f,0.10f,d},curb);
-                    DrawCubeV({x,0.005f,z-d*0.5f},{w,0.10f,0.2f},curb);
-                    DrawCubeV({x,0.005f,z+d*0.5f},{w,0.10f,0.2f},curb);
+                    auto strip=[&](float px,float pz,float sx,float sz) {
+                        if(sx>0.0f && sz>0.0f)
+                            DrawCubeV({px,0.005f,pz},{sx,0.09f,sz},sidewalk);
+                    };
+                    auto kerb=[&](float px,float pz,float sx,float sz) {
+                        if(sx>0.0f && sz>0.0f)
+                            DrawCubeV({px,0.005f,pz},{sx,0.10f,sz},curb);
+                    };
+                    // Straight outer boundaries stop 6m before each junction.
+                    for(int side : {-1,1}) {
+                        const float sx=x+side*(halfW-edge*0.5f);
+                        const float kx=x+side*halfW;
+                        strip(sx,z,edge,d-2*cut);
+                        kerb(kx,z,0.2f,d-2*cut);
+                        const float sz=z+side*(halfD-edge*0.5f);
+                        const float kz=z+side*halfD;
+                        strip(x,sz,w-2*cut,edge);
+                        kerb(x,kz,w-2*cut,0.2f);
+                        // Return edges around each cut-out corner.
+                        for(int other : {-1,1}) {
+                            const float cornerZ=z+other*(halfD-cut);
+                            const float cornerX=x+other*(halfW-cut);
+                            strip(x+side*(halfW-cut+edge*0.5f),cornerZ,
+                                  edge,cut);
+                            strip(cornerX,z+side*(halfD-cut+edge*0.5f),
+                                  cut,edge);
+                        }
+                    }
                     continue;
                 }
                 const auto it=cityModels.find(instance.model);
