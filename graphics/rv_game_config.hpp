@@ -6,6 +6,7 @@ struct RVGameConfig {
     std::string car;
     std::string script;
     std::string pavement;
+    std::string city; // Optional georeferenced GLB scene
     std::string character;
     std::string idle;
     std::string walking;
