@@ -181,9 +181,10 @@ static void forNearbyOSM(Vector3 camera,float radius,bool buildings,Callback cal
 // The slot for each OSM footprint is stable across frames and game sessions.
 struct OSMBuildingAsset { Model model; BoundingBox bounds; };
 static std::vector<OSMBuildingAsset> osmBuildingAssets;
-static void loadOSMBuildingAssets() {
+static void loadOSMBuildingAssets(const RVGameConfig& config) {
     for (int slot=1;slot<=32;++slot) {
-        const std::string file=resolveCityFile("assets/city/buildings/predio"+std::to_string(slot)+".glb");
+        const std::string& file=config.buildingSlots[slot-1];
+        if (file.empty()) continue;
         if (!FileExists(file.c_str())) continue;
         Model model=LoadModel(file.c_str());
         if (!IsModelValid(model)) continue;
@@ -676,7 +677,7 @@ int main(int argc, char** argv) {
     SetTargetFPS(120);
     loadOSMRoads();
     loadOSMBuildings();
-    loadOSMBuildingAssets();
+    loadOSMBuildingAssets(config);
     indexOSM();
     buildCityMap();
     cityFogShader=LoadShaderFromMemory(cityFogVertex,cityFogFragment);
