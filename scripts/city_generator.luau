@@ -13,10 +13,10 @@ local lastX, lastZ = nil, nil
 local metrics = CityAssets or {}
 
 -- Local road connector orientation (degrees). The straight model runs along Z.
--- Rotating by 180/270 flips its textured left/right edges relative to the
--- intersection. Keep both positive-direction connectors in the same frame.
+-- The horizontal road uses the opposite quarter-turn to align its
+-- authored curb/edge orientation with the intersection artwork.
 local STRAIGHT_Z_YAW = 0
-local STRAIGHT_X_YAW = 90
+local STRAIGHT_X_YAW = 270
 local INTERSECTION_YAW = 0
 
 local function placeConnectedRoad(id, x, z, axis)
