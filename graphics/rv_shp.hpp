@@ -60,6 +60,7 @@ inline Result readRoads(const std::string& path,float width=8.0f,
             if(in.eof() && in.gcount()==0) break;
             result.error="Truncated SHP record header"; result.segments.clear();return result;
         }
+        const std::uint32_t recordNumber=be32(rh);
         const std::uint64_t bytes=std::uint64_t(be32(rh+4))*2;
         if(bytes<4 || bytes>128ull*1024*1024 || !readBlock(record,static_cast<std::size_t>(bytes))) {
             result.error="Invalid/truncated SHP record";result.segments.clear();return result;
@@ -72,14 +73,22 @@ inline Result readRoads(const std::string& path,float width=8.0f,
         const std::uint32_t parts=le32(p+36),points=le32(p+40);
         if(parts==0 || points<2 || parts>points ||
            std::uint64_t(44)+std::uint64_t(parts)*4+std::uint64_t(points)*16>bytes) {
-            result.error="Invalid polyline parts/points";result.segments.clear();return result;
+            result.error="Invalid polyline parts/points in SHP record "+std::to_string(recordNumber)+
+                " (shape="+std::to_string(shape)+", parts="+std::to_string(parts)+
+                ", points="+std::to_string(points)+", bytes="+std::to_string(bytes)+
+                ", minimum="+std::to_string(std::uint64_t(44)+std::uint64_t(parts)*4+
+                                            std::uint64_t(points)*16)+")";
+            result.segments.clear();return result;
         }
         const std::size_t pointStart=44+std::size_t(parts)*4;
         for(std::uint32_t part=0;part<parts;++part) {
             const std::uint32_t begin=le32(p+44+part*4);
             const std::uint32_t end=part+1<parts?le32(p+44+(part+1)*4):points;
             if(begin>=end || end>points) {
-                result.error="Invalid part offset";result.segments.clear();return result;
+                result.error="Invalid part offset in SHP record "+std::to_string(recordNumber)+
+                    " (part="+std::to_string(part)+", begin="+std::to_string(begin)+
+                    ", end="+std::to_string(end)+", points="+std::to_string(points)+")";
+                result.segments.clear();return result;
             }
             for(std::uint32_t j=begin+1;j<end;++j) {
                 const auto* a=p+pointStart+std::size_t(j-1)*16;
