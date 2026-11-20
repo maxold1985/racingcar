@@ -112,6 +112,40 @@ static void loadOSMRoads() {
     osmRoadsLoaded=!osmRoads.empty();
     std::fprintf(stderr,"[OSM] Loaded %zu Londrina road segments\\n",osmRoads.size());
 }
+struct OSMBuilding { Vector3 center; Vector3 dimensions; };
+static std::vector<OSMBuilding> osmBuildings;
+static void loadOSMBuildings() {
+    std::ifstream input(resolveCityFile("assets/city/londrina_buildings.csv"));
+    if (!input) return;
+    std::string line;
+    std::getline(input,line);
+    while (std::getline(input,line)) {
+        std::replace(line.begin(),line.end(),',',' ');
+        std::istringstream row(line);
+        float x,z,width,depth,height;
+        if (!(row>>x>>z>>width>>depth>>height)) continue;
+        if (!std::isfinite(x)||!std::isfinite(z)||!std::isfinite(width)||
+            !std::isfinite(depth)||!std::isfinite(height)||
+            width<2||depth<2||height<2) continue;
+        osmBuildings.push_back({{x,height*0.5f,z},{width,height,depth}});
+    }
+    std::fprintf(stderr,"[OSM] Loaded %zu buildings\\n",osmBuildings.size());
+}
+static void drawOSMBuildings(Vector3 cameraPosition) {
+    constexpr float radius=230.0f;
+    for (const auto& building:osmBuildings) {
+        const float dx=building.center.x-cameraPosition.x;
+        const float dz=building.center.z-cameraPosition.z;
+        const float reach=radius+std::max(building.dimensions.x,building.dimensions.z)*0.5f;
+        if (dx*dx+dz*dz>reach*reach) continue;
+        const float distance2=dx*dx+dz*dz;
+        const Color wall=distance2>100.0f*100.0f ?
+            Color{126,134,142,255}:Color{172,170,162,255};
+        DrawCubeV(building.center,building.dimensions,wall);
+        if (distance2<100.0f*100.0f)
+            DrawCubeWiresV(building.center,building.dimensions,Color{91,95,100,255});
+    }
+}
 static void drawOSMRoads(Vector3 cameraPosition) {
     constexpr float radius=260.0f;
     constexpr float radius2=radius*radius;
@@ -554,6 +588,7 @@ int main(int argc, char** argv) {
     if (!IsWindowReady()) return 1;
     SetTargetFPS(120);
     loadOSMRoads();
+    loadOSMBuildings();
     buildCityMap();
     cityFogShader=LoadShaderFromMemory(cityFogVertex,cityFogFragment);
     if (IsShaderValid(cityFogShader))
@@ -1394,7 +1429,7 @@ int main(int argc, char** argv) {
                             DrawGrid(80,5);
                         }
                         if (IsShaderValid(cityFogShader)) BeginShaderMode(cityFogShader);
-                        if (osmRoadsLoaded) drawOSMRoads(camera.position);
+                        if (osmRoadsLoaded) { drawOSMRoads(camera.position); drawOSMBuildings(camera.position); }
                         else drawCity(camera);
                         if (IsShaderValid(cityFogShader)) EndShaderMode();
                         // WHITE preserves the imported glTF/GLB base-color textures and materials.
