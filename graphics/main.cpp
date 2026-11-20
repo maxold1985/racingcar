@@ -24,6 +24,7 @@
 // replace this callback with mesh collision / BVH raycasts.
 
 #include <unordered_map>
+#include <unordered_set>
 #include <cstdint>
 #include <memory>
 
@@ -131,9 +132,55 @@ static void loadOSMBuildings() {
     }
     std::fprintf(stderr,"[OSM] Loaded %zu buildings\\n",osmBuildings.size());
 }
+// 512 x 512 m spatial grid: static OSM data stays in RAM, nearby buckets are queried.
+static constexpr float osmCellSize=512.0f;
+struct OSMCell { std::vector<std::size_t> roads,buildings; };
+static std::unordered_map<std::int64_t,OSMCell> osmCells;
+static int osmCellCoord(float v) { return static_cast<int>(std::floor(v/osmCellSize)); }
+static std::int64_t osmCellKey(int x,int z) {
+    return static_cast<std::int64_t>(
+        (static_cast<std::uint64_t>(static_cast<std::uint32_t>(x))<<32) |
+        static_cast<std::uint32_t>(z));
+}
+static void indexOSM() {
+    osmCells.clear();
+    for (std::size_t i=0;i<osmRoads.size();++i) {
+        const auto& r=osmRoads[i];
+        const float half=r.width*0.5f;
+        const int x0=osmCellCoord(std::min(r.a.x,r.b.x)-half);
+        const int x1=osmCellCoord(std::max(r.a.x,r.b.x)+half);
+        const int z0=osmCellCoord(std::min(r.a.z,r.b.z)-half);
+        const int z1=osmCellCoord(std::max(r.a.z,r.b.z)+half);
+        for (int z=z0;z<=z1;++z) for (int x=x0;x<=x1;++x)
+            osmCells[osmCellKey(x,z)].roads.push_back(i);
+    }
+    for (std::size_t i=0;i<osmBuildings.size();++i) {
+        const auto& b=osmBuildings[i];
+        const float hx=b.dimensions.x*0.5f,hz=b.dimensions.z*0.5f;
+        const int x0=osmCellCoord(b.center.x-hx),x1=osmCellCoord(b.center.x+hx);
+        const int z0=osmCellCoord(b.center.z-hz),z1=osmCellCoord(b.center.z+hz);
+        for (int z=z0;z<=z1;++z) for (int x=x0;x<=x1;++x)
+            osmCells[osmCellKey(x,z)].buildings.push_back(i);
+    }
+    std::fprintf(stderr,"[OSM] Indexed %zu cells (512x512m)\\n",osmCells.size());
+}
+template<typename Callback>
+static void forNearbyOSM(Vector3 camera,float radius,bool buildings,Callback callback) {
+    const int x0=osmCellCoord(camera.x-radius),x1=osmCellCoord(camera.x+radius);
+    const int z0=osmCellCoord(camera.z-radius),z1=osmCellCoord(camera.z+radius);
+    std::unordered_set<std::size_t> visited;
+    for (int z=z0;z<=z1;++z) for (int x=x0;x<=x1;++x) {
+        const auto it=osmCells.find(osmCellKey(x,z));
+        if (it==osmCells.end()) continue;
+        const auto& ids=buildings?it->second.buildings:it->second.roads;
+        for (std::size_t id:ids)
+            if (visited.insert(id).second) callback(id);
+    }
+}
 static void drawOSMBuildings(Vector3 cameraPosition) {
     constexpr float radius=230.0f;
-    for (const auto& building:osmBuildings) {
+    forNearbyOSM(cameraPosition,radius+110.0f,true,[&](std::size_t id) {
+        const auto& building=osmBuildings[id];
         const float dx=building.center.x-cameraPosition.x;
         const float dz=building.center.z-cameraPosition.z;
         const float reach=radius+std::max(building.dimensions.x,building.dimensions.z)*0.5f;
@@ -144,12 +191,12 @@ static void drawOSMBuildings(Vector3 cameraPosition) {
         DrawCubeV(building.center,building.dimensions,wall);
         if (distance2<100.0f*100.0f)
             DrawCubeWiresV(building.center,building.dimensions,Color{91,95,100,255});
-    }
+    });
 }
 static void drawOSMRoads(Vector3 cameraPosition) {
     constexpr float radius=260.0f;
-    constexpr float radius2=radius*radius;
-    for (const auto& road:osmRoads) {
+    forNearbyOSM(cameraPosition,radius+110.0f,false,[&](std::size_t id) {
+        const auto& road=osmRoads[id];
         const float mx=(road.a.x+road.b.x)*0.5f;
         const float mz=(road.a.z+road.b.z)*0.5f;
         const float dx=mx-cameraPosition.x,dz=mz-cameraPosition.z;
@@ -164,7 +211,7 @@ static void drawOSMRoads(Vector3 cameraPosition) {
         rlRotatef(angle,0.0f,1.0f,0.0f);
         DrawCubeV({0,0,0},{road.width,0.06f,length+0.5f},Color{57,59,62,255});
         rlPopMatrix();
-    }
+    });
 }
 // Full imported-map overview is rasterized once, not redrawn every frame.
 static RenderTexture2D cityMapTexture{};
@@ -589,6 +636,7 @@ int main(int argc, char** argv) {
     SetTargetFPS(120);
     loadOSMRoads();
     loadOSMBuildings();
+    indexOSM();
     buildCityMap();
     cityFogShader=LoadShaderFromMemory(cityFogVertex,cityFogFragment);
     if (IsShaderValid(cityFogShader))
