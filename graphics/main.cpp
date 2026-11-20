@@ -28,7 +28,7 @@
 #include <memory>
 
 // City streaming: chunks are Luau-owned, sectors are native draw buckets.
-struct CityInstance { int model; Vector3 position; float rotation; float scale; };
+struct CityInstance { int model; Vector3 position; float rotation; float scale; float scaleX; float scaleZ; };
 struct CitySector { std::vector<CityInstance> instances; };
 struct CityChunk { std::unordered_map<std::int64_t,CitySector> sectors; std::size_t count=0; };
 static std::unordered_map<int,CityChunk> cityChunks;
@@ -59,14 +59,16 @@ static std::string resolveCityFile(const std::string& relative) {
 static int cityAdd(lua_State* L) {
     const int chunk=static_cast<int>(luaL_checkinteger(L,1));
     const int model=static_cast<int>(luaL_checkinteger(L,2));
-    if (model<1 || model>10) { luaL_error(L,"invalid city model ID"); return 0; }
+    if (model<1 || model>8) { luaL_error(L,"invalid city model ID"); return 0; }
     if (cityInstanceCount>=cityInstanceLimit) { luaL_error(L,"city instance limit reached"); return 0; }
     const float x=static_cast<float>(luaL_checknumber(L,3));
     const float y=static_cast<float>(luaL_checknumber(L,4));
     const float z=static_cast<float>(luaL_checknumber(L,5));
     const float rotation=static_cast<float>(luaL_optnumber(L,6,0));
     const float scale=static_cast<float>(luaL_optnumber(L,7,1));
-    if (!std::isfinite(x)||!std::isfinite(y)||!std::isfinite(z)||!std::isfinite(rotation)||!std::isfinite(scale)||scale<=0.0f) {
+    const float scaleX=static_cast<float>(luaL_optnumber(L,8,scale));
+    const float scaleZ=static_cast<float>(luaL_optnumber(L,9,scale));
+    if (!std::isfinite(x)||!std::isfinite(y)||!std::isfinite(z)||!std::isfinite(rotation)||!std::isfinite(scale)||scale<=0.0f||!std::isfinite(scaleX)||!std::isfinite(scaleZ)||scaleX<=0.0f||scaleZ<=0.0f) {
         luaL_error(L,"non-finite city transform"); return 0;
     }
     // Sectors use global coordinates, avoiding collisions at negative positions.
@@ -76,7 +78,7 @@ static int cityAdd(lua_State* L) {
         static_cast<std::uint32_t>(sz);
     // Keep the sector hash in a global map keyed by chunk and sector.
     // The sector container uses 64-bit keys (see CityChunk below).
-    cityChunks[chunk].sectors[key].instances.push_back({model,{x,y,z},rotation,scale});
+    cityChunks[chunk].sectors[key].instances.push_back({model,{x,y,z},rotation,scale,scaleX,scaleZ});
     ++cityChunks[chunk].count;
     ++cityInstanceCount;
     return 0;
@@ -101,7 +103,7 @@ static void loadOneCityModel() {
     for (const auto& chunk:cityChunks) {
         for (const auto& sector:chunk.second.sectors) {
             for (const CityInstance& instance:sector.second.instances) {
-                if (instance.model>=9 || cityModels.count(instance.model)||cityMissing.count(instance.model)) continue;
+                if (cityModels.count(instance.model)||cityMissing.count(instance.model)) continue;
                 const std::string file=resolveCityFile(cityAssetDirectory+"/"+cityNames[instance.model-1]+".glb");
                 if (!FileExists(file.c_str())) {
                     cityMissing[instance.model]=true;
@@ -111,6 +113,14 @@ static void loadOneCityModel() {
                 Model model=LoadModel(file.c_str());
                 if (IsModelValid(model)) {
                     cityBounds.emplace(instance.model,GetModelBoundingBox(model));
+                    for (int materialIndex=0;materialIndex<model.materialCount;++materialIndex) {
+                        Material& mat=model.materials[materialIndex];
+                        const Texture2D diffuse=mat.maps[MATERIAL_MAP_DIFFUSE].texture;
+                        if (diffuse.id!=0 && diffuse.width>0 && diffuse.height>0) {
+                            GenTextureMipmaps(&mat.maps[MATERIAL_MAP_DIFFUSE].texture);
+                            SetTextureFilter(mat.maps[MATERIAL_MAP_DIFFUSE].texture,TEXTURE_FILTER_TRILINEAR);
+                        }
+                    }
                     cityModels.emplace(instance.model,model);
                     std::fprintf(stderr,"[CITY] Loaded: %s\\n",file.c_str());
                 } else {
@@ -121,39 +131,6 @@ static void loadOneCityModel() {
             }
         }
     }
-}
-// Seamless road geometry: each tile covers exactly one 16m grid cell.
-// Road tiles are independent of imported FBX pivots and UV layouts.
-static void drawRoadTile(const CityInstance& instance) {
-    const float x=instance.position.x;
-    const float z=instance.position.z;
-    constexpr float cell=16.0f;
-    constexpr float halfRoad=5.0f;
-    constexpr float surfaceY=0.035f;
-    const Color asphalt{49,52,56,255};
-    const Color line{220,213,174,255};
-    const Color white{224,225,222,255};
-    if (instance.model==10) {
-        // Full-width intersection joins both perpendicular road corridors.
-        DrawCubeV({x,surfaceY,z},{cell,0.06f,halfRoad*2},asphalt);
-        DrawCubeV({x,surfaceY,z},{halfRoad*2,0.06f,cell},asphalt);
-        // Four approach markings, positioned inside the intersection edges.
-        for (int i=-1;i<=1;i++) {
-            const float offset=i*2.7f;
-            DrawCubeV({x+offset,0.073f,z-6.6f},{1.3f,0.006f,0.25f},white);
-            DrawCubeV({x+offset,0.073f,z+6.6f},{1.3f,0.006f,0.25f},white);
-            DrawCubeV({x-6.6f,0.073f,z+offset},{0.25f,0.006f,1.3f},white);
-            DrawCubeV({x+6.6f,0.073f,z+offset},{0.25f,0.006f,1.3f},white);
-        }
-        return;
-    }
-    // Rotation 0 = road runs north/south (Z), 90 = east/west (X).
-    const bool eastWest=std::abs(std::sin(instance.rotation*DEG2RAD))>0.5f;
-    DrawCubeV({x,surfaceY,z},
-        eastWest ? Vector3{cell,0.06f,halfRoad*2} : Vector3{halfRoad*2,0.06f,cell},asphalt);
-    // Short dashed center line, with 1m gaps between adjacent tiles.
-    DrawCubeV({x,0.073f,z},
-        eastWest ? Vector3{8.0f,0.006f,0.15f} : Vector3{0.15f,0.006f,8.0f},line);
 }
 static void drawCity(Vector3 cameraPosition) {
     loadOneCityModel();
@@ -173,13 +150,12 @@ static void drawCity(Vector3 cameraPosition) {
                 const float ix=instance.position.x-cameraPosition.x;
                 const float iz=instance.position.z-cameraPosition.z;
                 if (ix*ix+iz*iz>radius2) continue;
-                if (instance.model>=9) { drawRoadTile(instance); continue; }
                 const auto it=cityModels.find(instance.model);
                 if (it!=cityModels.end())
                     {
                     const BoundingBox& bounds=cityBounds.at(instance.model);
-                    const float cx=(bounds.min.x+bounds.max.x)*0.5f*instance.scale;
-                    const float cz=(bounds.min.z+bounds.max.z)*0.5f*instance.scale;
+                    const float cx=(bounds.min.x+bounds.max.x)*0.5f*instance.scaleX;
+                    const float cz=(bounds.min.z+bounds.max.z)*0.5f*instance.scaleZ;
                     const float a=instance.rotation*DEG2RAD;
                     const float cs=std::cos(a),sn=std::sin(a);
                     const Vector3 origin={
@@ -188,7 +164,7 @@ static void drawCity(Vector3 cameraPosition) {
                         instance.position.z+cx*sn-cz*cs
                     };
                     DrawModelEx(it->second,origin,{0,1,0},instance.rotation,
-                        {instance.scale,instance.scale,instance.scale},WHITE);
+                        {instance.scaleX,instance.scale,instance.scaleZ},WHITE);
                 }
             }
         }
