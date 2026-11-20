@@ -184,7 +184,7 @@ static void drawOSMBuildings(Vector3 cameraPosition) {
         const float dx=building.center.x-cameraPosition.x;
         const float dz=building.center.z-cameraPosition.z;
         const float reach=radius+std::max(building.dimensions.x,building.dimensions.z)*0.5f;
-        if (dx*dx+dz*dz>reach*reach) continue;
+        if (dx*dx+dz*dz>reach*reach) return;
         const float distance2=dx*dx+dz*dz;
         const Color wall=distance2>100.0f*100.0f ?
             Color{126,134,142,255}:Color{172,170,162,255};
@@ -202,7 +202,7 @@ static void drawOSMRoads(Vector3 cameraPosition) {
         const float dx=mx-cameraPosition.x,dz=mz-cameraPosition.z;
         const float length=Vector3Distance(road.a,road.b);
         const float reach=radius+length*0.5f;
-        if (dx*dx+dz*dz>reach*reach) continue;
+        if (dx*dx+dz*dz>reach*reach) return;
         const Vector3 delta=Vector3Subtract(road.b,road.a);
         const float angle=std::atan2(delta.x,delta.z)*RAD2DEG;
         const Vector3 center{mx,0.005f,mz};
