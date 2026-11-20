@@ -12,6 +12,18 @@ local nextId = 1
 local lastX, lastZ = nil, nil
 local metrics = CityAssets or {}
 
+-- Local road connector orientation (degrees). The straight model runs along Z.
+-- Rotating by 180/270 flips its textured left/right edges relative to the
+-- intersection. Keep both positive-direction connectors in the same frame.
+local STRAIGHT_Z_YAW = 0
+local STRAIGHT_X_YAW = 90
+local INTERSECTION_YAW = 0
+
+local function placeConnectedRoad(id, x, z, axis)
+    local yaw = if axis == "z" then STRAIGHT_Z_YAW else STRAIGHT_X_YAW
+    CityWorld.add(id, 1, x, 0, z, yaw, 1)
+end
+
 local function hash(x,z,salt)
     local n=(x*73856093+z*19349663+salt*83492791+SEED)%2147483647
     return (n*48271+1)%2147483647
@@ -38,17 +50,26 @@ local function spawnChunk(cx,cz)
     for ix=0,1 do
         for iz=0,1 do
             local x,z=ox+ix*BLOCK_SPACING,oz+iz*BLOCK_SPACING
-            CityWorld.add(id,2,x,0,z,0,1)
+            CityWorld.add(id,2,x,0,z,INTERSECTION_YAW,1)
             for segment=0,5 do
                 local distance=15+12*segment
                 -- Original straight GLB longitudinal axis is Z.
-                CityWorld.add(id,1,x,0,z+distance,180,1)
-                CityWorld.add(id,1,x+distance,0,z,270,1)
+                placeConnectedRoad(id,x,z+distance,"z")
+                placeConnectedRoad(id,x+distance,z,"x")
             end
         end
     end
 
-    -- Each 90m square has an 80m paved interior, leaving the 18m\n    -- intersection footprint and a 2m setback from each 6m-wide road.\n    for ix=0,1 do\n        for iz=0,1 do\n            CityWorld.add(id,9,ox+ix*BLOCK_SPACING+45,0,\n                oz+iz*BLOCK_SPACING+45,0,1,80,80)\n        end\n    end\n\n    -- One building per interior lot. No buildings inside road corridors.
+    -- Each 90m square has an 80m paved interior, leaving the 18m
+    -- intersection footprint and a 2m setback from each 6m-wide road.
+    for ix=0,1 do
+        for iz=0,1 do
+            CityWorld.add(id,9,ox+ix*BLOCK_SPACING+45,0,
+                oz+iz*BLOCK_SPACING+45,0,1,80,80)
+        end
+    end
+
+    -- One building per interior lot. No buildings inside road corridors.
     for ix=0,1 do
         for iz=0,1 do
             local bx,bz=ox+ix*BLOCK_SPACING,oz+iz*BLOCK_SPACING
