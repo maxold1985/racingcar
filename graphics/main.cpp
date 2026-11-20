@@ -125,7 +125,23 @@ static void loadOneCityModel() {
                 }
                 Model model=LoadModel(file.c_str());
                 if (IsModelValid(model)) {
-                    cityBounds.emplace(instance.model,GetModelBoundingBox(model));
+                    const BoundingBox loadedBounds=GetModelBoundingBox(model);
+                    cityBounds.emplace(instance.model,loadedBounds);
+                    if (instance.model==1 || instance.model==2) {
+                        std::fprintf(stderr,
+                            "[CITY GEOMETRY] model=%s boundsMin=(%.4f,%.4f,%.4f) boundsMax=(%.4f,%.4f,%.4f) meshes=%d\\n",
+                            instance.model==1?"Street_2Lane":"Street_4WayIntersection",
+                            loadedBounds.min.x,loadedBounds.min.y,loadedBounds.min.z,
+                            loadedBounds.max.x,loadedBounds.max.y,loadedBounds.max.z,
+                            model.meshCount);
+                        std::fprintf(stderr,
+                            "[CITY MATRIX] model=%d transform=[%.4f %.4f %.4f %.4f | %.4f %.4f %.4f %.4f | %.4f %.4f %.4f %.4f | %.4f %.4f %.4f %.4f]\\n",
+                            instance.model,
+                            model.transform.m0,model.transform.m4,model.transform.m8,model.transform.m12,
+                            model.transform.m1,model.transform.m5,model.transform.m9,model.transform.m13,
+                            model.transform.m2,model.transform.m6,model.transform.m10,model.transform.m14,
+                            model.transform.m3,model.transform.m7,model.transform.m11,model.transform.m15);
+                    }
                     for (int materialIndex=0;materialIndex<model.materialCount;++materialIndex) {
                         Material& mat=model.materials[materialIndex];
                         const Texture2D diffuse=mat.maps[MATERIAL_MAP_DIFFUSE].texture;
