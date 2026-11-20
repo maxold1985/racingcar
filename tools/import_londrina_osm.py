@@ -28,6 +28,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--radius-km", type=float, default=2.5)
     parser.add_argument("--output", default="assets/city/londrina_roads.csv")
+    parser.add_argument("--pbf", type=pathlib.Path,
+                        help="Read a local .osm.pbf file instead of using Overpass")
     parser.add_argument("--request-timeout", type=int, default=35,
                         help="Seconds to wait for each Overpass request")
     args = parser.parse_args()
@@ -39,77 +41,113 @@ def main():
     lat_delta = radius / 111320
     lon_delta = radius / (111320 * math.cos(math.radians(LAT0)))
     bbox = (LAT0-lat_delta, LON0-lon_delta, LAT0+lat_delta, LON0+lon_delta)
-    roads = "|".join(ROAD_WIDTHS)
-    servers = [
-        "https://overpass.kumi.systems/api/interpreter",
-        "https://overpass-api.de/api/interpreter",
-        "https://overpass.nchc.org.tw/api/interpreter",
-    ]
-    # Smaller tiles avoid a single very large, long-running Overpass response.
-    # Each successful tile is cached, allowing interrupted imports to resume.
-    tile_count = max(1, math.ceil((2 * radius) / 1000))
-    cache_dir = pathlib.Path(args.output).parent / ".osm_cache"
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    elements_by_id = {}
-    for iy in range(tile_count):
-        for ix in range(tile_count):
-            south = bbox[0] + (bbox[2]-bbox[0])*iy/tile_count
-            north = bbox[0] + (bbox[2]-bbox[0])*(iy+1)/tile_count
-            west = bbox[1] + (bbox[3]-bbox[1])*ix/tile_count
-            east = bbox[1] + (bbox[3]-bbox[1])*(ix+1)/tile_count
-            box = f"({south:.7f},{west:.7f},{north:.7f},{east:.7f})"
-            query = (
-                f"[out:json][timeout:{args.request_timeout}];("
-                f'way["highway"~"^({roads})$"]{box};'
-                f'way["building"]{box};'
-                ");out geom;"
-            )
-            cache_file = cache_dir / (
-                f"tile_{LAT0}_{LON0}_{args.radius_km:g}_{tile_count}_{ix}_{iy}.json"
-            )
-            if cache_file.exists():
+    if args.pbf:
+        if not args.pbf.is_file():
+            parser.error(f"PBF file not found: {args.pbf}")
+        try:
+            import osmium
+        except ImportError:
+            parser.error("Install PBF support: python -m pip install osmium")
+        class Collector(osmium.SimpleHandler):
+            def __init__(self):
+                super().__init__()
+                self.elements = []
+            def way(self, way):
+                tags = dict(way.tags)
+                if tags.get("highway") not in ROAD_WIDTHS and "building" not in tags:
+                    return
+                points = []
                 try:
-                    tile_data = json.loads(cache_file.read_text(encoding="utf-8"))
-                except (ValueError, OSError):
-                    cache_file.unlink(missing_ok=True)
-                    tile_data = None
-            else:
-                tile_data = None
-            if tile_data is None:
-                last_error = None
-                for attempt in range(3):
-                    server = servers[attempt % len(servers)]
-                    req = urllib.request.Request(
-                        server,
-                        data=urllib.parse.urlencode({"data": query}).encode(),
-                        headers={"User-Agent": "RacingCar-OSM-Importer/1.1"},
-                    )
+                    for node in way.nodes:
+                        if not node.location.valid():
+                            return
+                        points.append({"lat": node.location.lat, "lon": node.location.lon})
+                except (ValueError, RuntimeError):
+                    return
+                if len(points) < 2:
+                    return
+                if not any(bbox[0] <= p["lat"] <= bbox[2] and
+                           bbox[1] <= p["lon"] <= bbox[3] for p in points):
+                    return
+                self.elements.append({"type": "way", "id": way.id,
+                                      "tags": tags, "geometry": points})
+        collector = Collector()
+        print(f"Reading local PBF: {args.pbf}", flush=True)
+        collector.apply_file(str(args.pbf), locations=True)
+        data = {"elements": collector.elements}
+        print(f"Selected {len(collector.elements)} roads/buildings from PBF")
+    else:
+        roads = "|".join(ROAD_WIDTHS)
+        servers = [
+            "https://overpass.kumi.systems/api/interpreter",
+            "https://overpass-api.de/api/interpreter",
+            "https://overpass.nchc.org.tw/api/interpreter",
+        ]
+        # Smaller tiles avoid a single very large, long-running Overpass response.
+        # Each successful tile is cached, allowing interrupted imports to resume.
+        tile_count = max(1, math.ceil((2 * radius) / 1000))
+        cache_dir = pathlib.Path(args.output).parent / ".osm_cache"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        elements_by_id = {}
+        for iy in range(tile_count):
+            for ix in range(tile_count):
+                south = bbox[0] + (bbox[2]-bbox[0])*iy/tile_count
+                north = bbox[0] + (bbox[2]-bbox[0])*(iy+1)/tile_count
+                west = bbox[1] + (bbox[3]-bbox[1])*ix/tile_count
+                east = bbox[1] + (bbox[3]-bbox[1])*(ix+1)/tile_count
+                box = f"({south:.7f},{west:.7f},{north:.7f},{east:.7f})"
+                query = (
+                    f"[out:json][timeout:{args.request_timeout}];("
+                    f'way["highway"~"^({roads})$"]{box};'
+                    f'way["building"]{box};'
+                    ");out geom;"
+                )
+                cache_file = cache_dir / (
+                    f"tile_{LAT0}_{LON0}_{args.radius_km:g}_{tile_count}_{ix}_{iy}.json"
+                )
+                if cache_file.exists():
                     try:
-                        print(f"Tile {iy*tile_count+ix+1}/{tile_count**2}, "
-                              f"attempt {attempt+1}/3: {server}", flush=True)
-                        with urllib.request.urlopen(req, timeout=args.request_timeout+5) as response:
-                            tile_data = json.load(response)
-                        if "elements" not in tile_data:
-                            raise ValueError("Overpass returned no elements field")
-                        cache_file.write_text(json.dumps(tile_data), encoding="utf-8")
-                        break
-                    except (OSError, ValueError, TimeoutError,
-                            urllib.error.HTTPError) as error:
-                        last_error = error
-                        print(f"  Request failed: {error}", flush=True)
-                        if attempt < 2:
-                            time.sleep(2)
+                        tile_data = json.loads(cache_file.read_text(encoding="utf-8"))
+                    except (ValueError, OSError):
+                        cache_file.unlink(missing_ok=True)
+                        tile_data = None
+                else:
+                    tile_data = None
                 if tile_data is None:
-                    raise RuntimeError(
-                        f"Could not download tile {ix},{iy} after 3 attempts. "
-                        f"Cached tiles are preserved; rerun the command. "
-                        f"Last error: {last_error}"
-                    )
-            for element in tile_data.get("elements", []):
-                if element.get("type") == "way" and "id" in element:
-                    elements_by_id[element["id"]] = element
-    data = {"elements": list(elements_by_id.values())}
-    print(f"Imported {len(elements_by_id)} unique OSM ways.")
+                    last_error = None
+                    for attempt in range(3):
+                        server = servers[attempt % len(servers)]
+                        req = urllib.request.Request(
+                            server,
+                            data=urllib.parse.urlencode({"data": query}).encode(),
+                            headers={"User-Agent": "RacingCar-OSM-Importer/1.1"},
+                        )
+                        try:
+                            print(f"Tile {iy*tile_count+ix+1}/{tile_count**2}, "
+                                  f"attempt {attempt+1}/3: {server}", flush=True)
+                            with urllib.request.urlopen(req, timeout=args.request_timeout+5) as response:
+                                tile_data = json.load(response)
+                            if "elements" not in tile_data:
+                                raise ValueError("Overpass returned no elements field")
+                            cache_file.write_text(json.dumps(tile_data), encoding="utf-8")
+                            break
+                        except (OSError, ValueError, TimeoutError,
+                                urllib.error.HTTPError) as error:
+                            last_error = error
+                            print(f"  Request failed: {error}", flush=True)
+                            if attempt < 2:
+                                time.sleep(2)
+                    if tile_data is None:
+                        raise RuntimeError(
+                            f"Could not download tile {ix},{iy} after 3 attempts. "
+                            f"Cached tiles are preserved; rerun the command. "
+                            f"Last error: {last_error}"
+                        )
+                for element in tile_data.get("elements", []):
+                    if element.get("type") == "way" and "id" in element:
+                        elements_by_id[element["id"]] = element
+        data = {"elements": list(elements_by_id.values())}
+        print(f"Imported {len(elements_by_id)} unique OSM ways.")
     output = pathlib.Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
     count = 0
