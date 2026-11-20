@@ -1,5 +1,5 @@
 # racingcar startup configuration (paths relative to THIS file)
-# Supported keys: car, script, pavement, character, idle, walking, jump, enter_car, building_slot_1..32
+# Supported keys: car, script, pavement, city, roads_shp, road_width, shp_origin_x/y, character, idle, walking, jump, enter_car, building_slot_1..32
 # Use forward slashes or Windows backslashes; quotes are optional.
 car = "assets/car retro.glb"
 script = scripts/racing_game.luau
@@ -8,6 +8,14 @@ pavement = assets/pavimento.webp
 # Optional city GLB, exported in meters with Y up and local origin.
 # This is a visual mesh; vehicle collisions still use the existing physics.
 city = assets/city/londrina.glb
+
+# SIGLON projected PolyLine shapefile (metric CRS, not latitude/longitude).
+# Keep its .shx/.dbf/.prj alongside the .shp. SHP roads replace CSV roads when set.
+# The first dataset bounding-box corner becomes game (0,0) unless origin is specified.
+roads_shp = assets/city/arruamento.shp
+road_width = 8
+# shp_origin_x = 480000
+# shp_origin_y = 7420000
 
 # Optional character and Mixamo FBX animations.
 # Empty values disable the optional asset.
