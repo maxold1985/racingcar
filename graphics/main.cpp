@@ -1695,11 +1695,11 @@ int main(int argc, char** argv) {
                                               Color{65,100,65,255});
                             }
                         }
+                        drawImportedCity(camera.position);
                         if (osmRoadsLoaded) {
                             // OSM geometry uses its own asphalt/wall colors.
                             // Do not apply the city fog shader: its sky-color blend
                             // washes out roads and buildings.
-                            drawImportedCity(camera.position);
                             drawOSMRoads(camera.position);
                             drawOSMBuildings(camera.position);
                             drawTraffic();
