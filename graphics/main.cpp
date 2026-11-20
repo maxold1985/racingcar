@@ -91,6 +91,47 @@ static std::string resolveCityFile(const std::string& relative) {
     }
     return relative;
 }
+struct OSMRoadSegment { Vector3 a; Vector3 b; float width; };
+static std::vector<OSMRoadSegment> osmRoads;
+static bool osmRoadsLoaded=false;
+static void loadOSMRoads() {
+    const std::string path=resolveCityFile("assets/city/londrina_roads.csv");
+    std::ifstream input(path);
+    if (!input) return;
+    std::string line;
+    std::getline(input,line); // CSV header
+    while (std::getline(input,line)) {
+        std::replace(line.begin(),line.end(),',',' ');
+        std::istringstream row(line);
+        float x1,z1,x2,z2,width;
+        if (!(row>>x1>>z1>>x2>>z2>>width)) continue;
+        if (!std::isfinite(x1)||!std::isfinite(z1)||!std::isfinite(x2)||
+            !std::isfinite(z2)||!std::isfinite(width)||width<=0) continue;
+        osmRoads.push_back({{x1,0.02f,z1},{x2,0.02f,z2},width});
+    }
+    osmRoadsLoaded=!osmRoads.empty();
+    std::fprintf(stderr,"[OSM] Loaded %zu Londrina road segments\\n",osmRoads.size());
+}
+static void drawOSMRoads(Vector3 cameraPosition) {
+    constexpr float radius=260.0f;
+    constexpr float radius2=radius*radius;
+    for (const auto& road:osmRoads) {
+        const float mx=(road.a.x+road.b.x)*0.5f;
+        const float mz=(road.a.z+road.b.z)*0.5f;
+        const float dx=mx-cameraPosition.x,dz=mz-cameraPosition.z;
+        const float length=Vector3Distance(road.a,road.b);
+        const float reach=radius+length*0.5f;
+        if (dx*dx+dz*dz>reach*reach) continue;
+        const Vector3 delta=Vector3Subtract(road.b,road.a);
+        const float angle=std::atan2(delta.x,delta.z)*RAD2DEG;
+        const Vector3 center{mx,0.005f,mz};
+        rlPushMatrix();
+        rlTranslatef(center.x,center.y,center.z);
+        rlRotatef(angle,0.0f,1.0f,0.0f);
+        DrawCubeV({0,0,0},{road.width,0.06f,length+0.5f},Color{57,59,62,255});
+        rlPopMatrix();
+    }
+}
 static int cityAdd(lua_State* L) {
     const int chunk=static_cast<int>(luaL_checkinteger(L,1));
     const int model=static_cast<int>(luaL_checkinteger(L,2));
@@ -458,6 +499,7 @@ int main(int argc, char** argv) {
     InitWindow(1280,720,"racingcar - Luau raycast racing");
     if (!IsWindowReady()) return 1;
     SetTargetFPS(120);
+    loadOSMRoads();
     cityFogShader=LoadShaderFromMemory(cityFogVertex,cityFogFragment);
     if (IsShaderValid(cityFogShader))
         cityFogCameraLoc=GetShaderLocation(cityFogShader,"fogCamera");
@@ -530,7 +572,7 @@ int main(int argc, char** argv) {
                 if (FileExists(metricsScript.c_str())) loadScript(L,metricsScript.c_str());
                 else std::fprintf(stderr,"[CITY] Asset metrics missing; run Blender converter\\n");
                 const std::string cityScript=resolveCityFile("scripts/city_generator.luau");
-                if (FileExists(cityScript.c_str())) {
+                if (!osmRoadsLoaded && FileExists(cityScript.c_str())) {
                     if (loadScript(L,cityScript.c_str()))
                         std::fprintf(stderr,"[CITY] Luau generator loaded: %s\\n",cityScript.c_str());
                 } else {
@@ -898,7 +940,7 @@ int main(int argc, char** argv) {
                         if (steps==12 && accumulator>=fixedDt) accumulator=0; // avoid spiral of death
                         state=rv_vehicle_get_state(car);
                         const Vector3 pos=toRay(state.position);
-                        updateCityScript(L,player.insideCar ? pos : player.position());
+                        if (!osmRoadsLoaded) updateCityScript(L,player.insideCar ? pos : player.position());
                         const Quaternion orientation=toRay(state.orientation);
                         // Moving car also pushes an on-foot player out of overlap.
                         player.resolveCarCollision(pos,orientation,
@@ -1295,7 +1337,8 @@ int main(int argc, char** argv) {
                             DrawGrid(80,5);
                         }
                         if (IsShaderValid(cityFogShader)) BeginShaderMode(cityFogShader);
-                        drawCity(camera);
+                        if (osmRoadsLoaded) drawOSMRoads(camera.position);
+                        else drawCity(camera);
                         if (IsShaderValid(cityFogShader)) EndShaderMode();
                         // WHITE preserves the imported glTF/GLB base-color textures and materials.
                         // A red tint multiplies every material color and makes the car red.
