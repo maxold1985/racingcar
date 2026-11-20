@@ -1,6 +1,7 @@
 #include "rv_model.hpp"
 #include "rv_player.hpp"
 #include "rv_game_config.hpp"
+#include "rv_shp.hpp"
 #include "webp_texture.hpp"
 #include "rv_luau.h"
 #include "rv_physics.h"
@@ -132,6 +133,22 @@ static void drawImportedCity(Vector3 cameraPosition) {
 struct OSMRoadSegment { Vector3 a; Vector3 b; float width; };
 static std::vector<OSMRoadSegment> osmRoads;
 static bool osmRoadsLoaded=false;
+static void loadSHPRoads(const RVGameConfig& config) {
+    if (config.roadsShp.empty()) return;
+    const auto result=rv_shp::readRoads(config.roadsShp,config.roadWidth,
+                                        config.shpOriginX,config.shpOriginY);
+    if (!result.error.empty()) {
+        std::fprintf(stderr,"[SHP] %s\\n",result.error.c_str());
+        return;
+    }
+    for (const auto& segment:result.segments)
+        osmRoads.push_back({{segment.x1,0.02f,segment.z1},
+                            {segment.x2,0.02f,segment.z2},segment.width});
+    osmRoadsLoaded=!osmRoads.empty();
+    std::fprintf(stderr,"[SHP] %zu road segments; origin %.3f %.3f\\n",
+                 result.segments.size(),result.originX,result.originY);
+}
+
 static void loadOSMRoads() {
     const std::string path=resolveCityFile("assets/city/londrina_roads.csv");
     std::ifstream input(path);
@@ -836,7 +853,8 @@ int main(int argc, char** argv) {
     if (!IsWindowReady()) return 1;
     SetTargetFPS(120);
     loadImportedCity(config.city);
-    loadOSMRoads();
+    if (!config.roadsShp.empty()) loadSHPRoads(config);
+    else loadOSMRoads();
     initTraffic();
     loadOSMBuildings();
     loadOSMBuildingAssets(config);
