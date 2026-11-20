@@ -31,6 +31,22 @@ local function place(id, model, x, z, angle, width, depth)
     CityWorld.add(id, model, x, 0, z, angle, scale)
 end
 
+-- Snap each road asset to the same exact 16x16 footprint.
+-- Independent axis scaling keeps imported intersections and straight pieces aligned.
+local function road(id, model, x, z, angle)
+    local m = metrics[model]
+    if m and type(m.width) == "number" and type(m.depth) == "number"
+        and m.width > 0 and m.depth > 0 then
+        local sx = CELL / m.width
+        local sz = CELL / m.depth
+        -- X/Z scaling is applied in model space before yaw rotation.
+        CityWorld.add(id, model, x, 0, z, angle, 1, sx, sz)
+    else
+        -- Keep the roads visible when the asset manifest is unavailable.
+        CityWorld.add(id, model, x, 0, z, angle, 1)
+    end
+end
+
 local function spawnChunk(cx, cz)
     local key = tostring(cx) .. ":" .. tostring(cz)
     if active[key] then return end
@@ -46,11 +62,11 @@ local function spawnChunk(cx, cz)
             local roadX = ix == 0 or ix == 6
             local roadZ = iz == 0 or iz == 6
             if roadX and roadZ then
-                CityWorld.add(id, 10, x, 0, z, 0, 1)
+                road(id, 2, x, z, 0)
             elseif roadX then
-                CityWorld.add(id, 9, x, 0, z, 0, 1)
+                road(id, 1, x, z, 0)
             elseif roadZ then
-                CityWorld.add(id, 9, x, 0, z, 90, 1)
+                road(id, 1, x, z, 90)
             end
         end
     end
@@ -76,7 +92,7 @@ end
 function cityUpdate(x, z)
     if not warned then
         warned = true
-        if not metrics[1] then
+        if not metrics[1] or not metrics[2] then
             print("[CITY] Asset metrics unavailable: using fallback scale 1; run Blender converter.")
         end
     end
