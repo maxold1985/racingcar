@@ -60,12 +60,13 @@ local function spawnChunk(cx,cz)
         end
     end
 
-    -- Each 90m square has an 80m paved interior, leaving the 18m
-    -- intersection footprint and a 2m setback from each 6m-wide road.
+    -- The 90m grid has 6m-wide roads: pavement edges must reach
+    -- +/-3m from each road centerline, so each block is 84m wide.
+    -- This removes the exposed 2m dirt strip along each lane.
     for ix=0,1 do
         for iz=0,1 do
             CityWorld.add(id,9,ox+ix*BLOCK_SPACING+45,0,
-                oz+iz*BLOCK_SPACING+45,0,1,80,80)
+                oz+iz*BLOCK_SPACING+45,0,1,84,84)
         end
     end
 
