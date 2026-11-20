@@ -2,6 +2,8 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
+#include <cmath>
+#include <stdexcept>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -50,6 +52,22 @@ bool LoadGameConfig(const std::string& filename, RVGameConfig& out) {
         if(key=="car") target=&loaded.car;
         else if(key=="script") target=&loaded.script;
         else if(key=="pavement") target=&loaded.pavement;
+        else if(key=="city") target=&loaded.city;
+        else if(key=="roads_shp") target=&loaded.roadsShp;
+        else if(key=="road_width" || key=="shp_origin_x" || key=="shp_origin_y") {
+            try {
+                const double number=std::stod(value);
+                if(!std::isfinite(number) || (key=="road_width" && (number<=0 || number>100)))
+                    throw std::out_of_range("invalid value");
+                if(key=="road_width") loaded.roadWidth=static_cast<float>(number);
+                else if(key=="shp_origin_x") loaded.shpOriginX=number;
+                else loaded.shpOriginY=number;
+            } catch(const std::exception&) {
+                std::fprintf(stderr,"Config %s:%u: invalid number for %s\\n",filename.c_str(),lineNumber,key.c_str());
+                return false;
+            }
+            continue;
+        }
         else if(key=="character") target=&loaded.character;
         else if(key=="idle") target=&loaded.idle;
         else if(key=="walking") target=&loaded.walking;
@@ -68,6 +86,7 @@ bool LoadGameConfig(const std::string& filename, RVGameConfig& out) {
                          filename.c_str(),lineNumber,key.c_str());
             return false;
         }
+        if(!target) { std::fprintf(stderr,"Config %s:%u: invalid key %s\\n",filename.c_str(),lineNumber,key.c_str());return false; }
         if(value.empty()) { target->clear();continue; }
         const fs::path path=fs::u8path(value);
         *target=(path.is_absolute()?path:base/path).lexically_normal().u8string();
