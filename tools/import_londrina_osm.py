@@ -28,7 +28,11 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--radius-km", type=float, default=2.5)
     parser.add_argument("--output", default="assets/city/londrina_roads.csv")
+    parser.add_argument("--request-timeout", type=int, default=35,
+                        help="Seconds to wait for each Overpass request")
     args = parser.parse_args()
+    if not 5 <= args.request_timeout <= 240:
+        parser.error("request-timeout must be between 5 and 240 seconds")
     if not 0 < args.radius_km <= 10:
         parser.error("radius-km must be in (0, 10]")
     radius = args.radius_km * 1000
@@ -43,7 +47,7 @@ def main():
     ]
     # Smaller tiles avoid a single very large, long-running Overpass response.
     # Each successful tile is cached, allowing interrupted imports to resume.
-    tile_count = max(1, math.ceil((2 * radius) / 1800))
+    tile_count = max(1, math.ceil((2 * radius) / 1000))
     cache_dir = pathlib.Path(args.output).parent / ".osm_cache"
     cache_dir.mkdir(parents=True, exist_ok=True)
     elements_by_id = {}
@@ -55,7 +59,7 @@ def main():
             east = bbox[1] + (bbox[3]-bbox[1])*(ix+1)/tile_count
             box = f"({south:.7f},{west:.7f},{north:.7f},{east:.7f})"
             query = (
-                "[out:json][timeout:90];("
+                f"[out:json][timeout:{args.request_timeout}];("
                 f'way["highway"~"^({roads})$"]{box};'
                 f'way["building"]{box};'
                 ");out geom;"
@@ -73,7 +77,7 @@ def main():
                 tile_data = None
             if tile_data is None:
                 last_error = None
-                for attempt in range(6):
+                for attempt in range(3):
                     server = servers[attempt % len(servers)]
                     req = urllib.request.Request(
                         server,
@@ -82,8 +86,8 @@ def main():
                     )
                     try:
                         print(f"Tile {iy*tile_count+ix+1}/{tile_count**2}, "
-                              f"attempt {attempt+1}/6: {server}", flush=True)
-                        with urllib.request.urlopen(req, timeout=110) as response:
+                              f"attempt {attempt+1}/3: {server}", flush=True)
+                        with urllib.request.urlopen(req, timeout=args.request_timeout+5) as response:
                             tile_data = json.load(response)
                         if "elements" not in tile_data:
                             raise ValueError("Overpass returned no elements field")
@@ -93,11 +97,11 @@ def main():
                             urllib.error.HTTPError) as error:
                         last_error = error
                         print(f"  Request failed: {error}", flush=True)
-                        if attempt < 5:
-                            time.sleep(min(3 * (attempt+1), 12))
+                        if attempt < 2:
+                            time.sleep(2)
                 if tile_data is None:
                     raise RuntimeError(
-                        f"Could not download tile {ix},{iy} after 6 attempts. "
+                        f"Could not download tile {ix},{iy} after 3 attempts. "
                         f"Cached tiles are preserved; rerun the command. "
                         f"Last error: {last_error}"
                     )
