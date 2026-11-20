@@ -1476,10 +1476,17 @@ int main(int argc, char** argv) {
                             DrawPlane(Vector3{0,-0.025f,0},Vector2{1500,1500},Color{65,100,65,255});
                             DrawGrid(80,5);
                         }
-                        if (IsShaderValid(cityFogShader)) BeginShaderMode(cityFogShader);
-                        if (osmRoadsLoaded) { drawOSMRoads(camera.position); drawOSMBuildings(camera.position); }
-                        else drawCity(camera);
-                        if (IsShaderValid(cityFogShader)) EndShaderMode();
+                        if (osmRoadsLoaded) {
+                            // OSM geometry uses its own asphalt/wall colors.
+                            // Do not apply the city fog shader: its sky-color blend
+                            // washes out roads and buildings.
+                            drawOSMRoads(camera.position);
+                            drawOSMBuildings(camera.position);
+                        } else {
+                            if (IsShaderValid(cityFogShader)) BeginShaderMode(cityFogShader);
+                            drawCity(camera);
+                            if (IsShaderValid(cityFogShader)) EndShaderMode();
+                        }
                         // WHITE preserves the imported glTF/GLB base-color textures and materials.
                         // A red tint multiplies every material color and makes the car red.
                         // The visible wheels are part of the GLB chassis mesh;
