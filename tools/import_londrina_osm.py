@@ -3,7 +3,7 @@
 
 Usage: python tools/import_londrina_osm.py
        python tools/import_londrina_osm.py --radius-km 3
-Output: assets/city/londrina_roads.csv (x1,z1,x2,z2,width,kind)
+Output: assets/city/londrina_roads.csv and londrina_buildings.csv
 OSM data © OpenStreetMap contributors, ODbL 1.0.
 """
 import argparse
@@ -38,6 +38,7 @@ def main():
         "[out:json][timeout:180];"
         f'way["highway"~"^({roads})$"]'
         f"({bbox[0]:.7f},{bbox[1]:.7f},{bbox[2]:.7f},{bbox[3]:.7f});"
+        f'way["building"]({bbox[0]:.7f},{bbox[1]:.7f},{bbox[2]:.7f},{bbox[3]:.7f});'
         "out geom;"
     )
     req = urllib.request.Request(
@@ -70,6 +71,38 @@ def main():
                 writer.writerow([f"{x1:.3f}",f"{z1:.3f}",f"{x2:.3f}",f"{z2:.3f}",width,kind])
                 count += 1
     print(f"Wrote {count} road segments to {output}")
+    building_output = output.with_name("londrina_buildings.csv")
+    building_count = 0
+    with building_output.open("w", newline="", encoding="utf-8") as file:
+        writer = csv.writer(file)
+        writer.writerow(["x", "z", "width", "depth", "height"])
+        for way in data.get("elements", []):
+            tags = way.get("tags", {})
+            if "building" not in tags:
+                continue
+            points = way.get("geometry", [])
+            if len(points) < 4:
+                continue
+            xs = [math.radians(p["lon"]-LON0)*6378137*math.cos(math.radians(LAT0)) for p in points]
+            zs = [-math.radians(p["lat"]-LAT0)*6378137 for p in points]
+            width, depth = max(xs)-min(xs), max(zs)-min(zs)
+            if not (2 <= width <= 150 and 2 <= depth <= 150):
+                continue
+            try:
+                height = float(tags.get("height", "").replace(" m", ""))
+            except ValueError:
+                height = 0
+            if height <= 0:
+                try:
+                    levels = float(tags.get("building:levels", ""))
+                except ValueError:
+                    levels = 2
+                height = max(3.0, min(180.0, levels*3.2))
+            writer.writerow([f"{(min(xs)+max(xs))/2:.3f}",
+                             f"{(min(zs)+max(zs))/2:.3f}",
+                             f"{width:.3f}", f"{depth:.3f}", f"{min(height,180):.3f}"])
+            building_count += 1
+    print(f"Wrote {building_count} building footprints to {building_output}")
     print("Source: © OpenStreetMap contributors (ODbL 1.0)")
 
 if __name__ == "__main__":
