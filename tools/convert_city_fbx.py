@@ -2,6 +2,8 @@
 # Usage: blender -b --python tools/convert_city_fbx.py -- SOURCE_FBX_DIR OUTPUT_GLB_DIR
 import bpy
 import sys
+import json
+import struct
 from mathutils import Vector
 from pathlib import Path
 
@@ -27,6 +29,49 @@ texture_index = {}
 for file in kit_root.rglob("*"):
     if file.is_file() and file.suffix.lower() in {".png", ".jpg", ".jpeg", ".tga", ".webp", ".bmp"}:
         texture_index.setdefault(file.name.lower(), file)
+
+def strip_extra_vertex_colors(glb_path):
+    """Remove COLOR_1+ from glTF primitives without touching UVs or image data.
+
+    Some FBX exports contain a secondary red vertex-color layer. The raylib
+    importer can apply it as a tint, even though COLOR_0 is neutral white.
+    """
+    raw = glb_path.read_bytes()
+    if raw[:4] != b"glTF" or len(raw) < 20:
+        raise RuntimeError(f"Not a valid GLB: {glb_path}")
+    version, total_size = struct.unpack_from("<II", raw, 4)
+    if version != 2 or total_size != len(raw):
+        raise RuntimeError(f"Invalid GLB header: {glb_path}")
+    offset = 12
+    chunks = []
+    removed = 0
+    while offset < len(raw):
+        length, chunk_type = struct.unpack_from("<I4s", raw, offset)
+        offset += 8
+        payload = raw[offset:offset + length]
+        if len(payload) != length:
+            raise RuntimeError("Truncated GLB chunk")
+        offset += length
+        if chunk_type == b"JSON":
+            doc = json.loads(payload.decode("utf-8"))
+            for mesh in doc.get("meshes", []):
+                for primitive in mesh.get("primitives", []):
+                    attrs = primitive.get("attributes", {})
+                    for key in list(attrs):
+                        if key.startswith("COLOR_") and key != "COLOR_0":
+                            del attrs[key]
+                            removed += 1
+            payload = json.dumps(doc, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+            payload += b" " * (-len(payload) % 4)
+        chunks.append((chunk_type, payload))
+    rebuilt = bytearray(struct.pack("<4sII", b"glTF", 2,
+        12 + sum(8 + len(payload) for _, payload in chunks)))
+    for chunk_type, payload in chunks:
+        rebuilt += struct.pack("<I4s", len(payload), chunk_type)
+        rebuilt += payload
+    glb_path.write_bytes(rebuilt)
+    return removed
+
 
 print(f"[CITY] Indexed {len(texture_index)} texture names under {kit_root}")
 metrics = {}
@@ -79,7 +124,8 @@ for model_id, name in enumerate(NAMES, 1):
     output = dst / (name + ".glb")
     bpy.ops.export_scene.gltf(filepath=str(output), export_format="GLB",
                               export_materials="EXPORT", export_image_format="AUTO")
-    print(f"[CITY] EXPORTED {name}: relinked={relinked}, missing_images={unresolved}")
+    stripped = strip_extra_vertex_colors(output)
+    print(f"[CITY] EXPORTED {name}: relinked={relinked}, removed_extra_color_layers={stripped}, missing_images={unresolved}")
 # The runtime loads these metrics before the procedural generator.
 metrics_path = dst.parent.parent / "scripts" / "city_asset_metrics.luau"
 metrics_path.parent.mkdir(parents=True, exist_ok=True)
