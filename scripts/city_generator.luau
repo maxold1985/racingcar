@@ -61,12 +61,12 @@ local function spawnChunk(cx,cz)
     end
 
     -- The 90m grid has 6m-wide roads: pavement edges must reach
-    -- +/-3m from each road centerline, so each block is 84m wide.
+    -- 12m road plus 3m sidewalks on each side: block spans 72m between sidewalks.
     -- This removes the exposed 2m dirt strip along each lane.
     for ix=0,1 do
         for iz=0,1 do
             CityWorld.add(id,9,ox+ix*BLOCK_SPACING+45,0,
-                oz+iz*BLOCK_SPACING+45,0,1,84,84)
+                oz+iz*BLOCK_SPACING+45,0,1,72,72)
         end
     end
 
