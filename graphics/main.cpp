@@ -161,7 +161,13 @@ static void loadOneCityModel() {
         }
     }
 }
-static void drawCity(Vector3 cameraPosition) {
+static void drawCity(const Camera3D& camera) {
+    const Vector3 cameraPosition=camera.position;
+    const Vector3 view={camera.target.x-camera.position.x,0.0f,camera.target.z-camera.position.z};
+    const float viewLength=std::sqrt(view.x*view.x+view.z*view.z);
+    const float forwardX=viewLength>0.001f?view.x/viewLength:0.0f;
+    const float forwardZ=viewLength>0.001f?view.z/viewLength:0.0f;
+    constexpr float buildingDetailDistance2=85.0f*85.0f;
     loadOneCityModel();
     const float radius2=cityDrawRadius*cityDrawRadius;
     for (const auto& chunk:cityChunks) {
@@ -178,7 +184,11 @@ static void drawCity(Vector3 cameraPosition) {
             for (const CityInstance& instance:instances) {
                 const float ix=instance.position.x-cameraPosition.x;
                 const float iz=instance.position.z-cameraPosition.z;
-                if (ix*ix+iz*iz>radius2) continue;
+                const float distance2=ix*ix+iz*iz;
+                if (distance2>radius2) continue;
+                // Cull buildings sufficiently far behind the camera.
+                if (instance.model>=4 && instance.model<=6 && viewLength>0.001f &&
+                    ix*forwardX+iz*forwardZ < -32.0f) continue;
                 if (instance.model==9) {
                     // Block occupies the 84m gap between 6m roads.
                     // Four 18x18 intersection footprints overlap its corners:
@@ -245,6 +255,17 @@ static void drawCity(Vector3 cameraPosition) {
                         instance.position.y-bounds.min.y*instance.scale,
                         instance.position.z+cx*sn-cz*cs
                     };
+                    // Cheap distant silhouette in place of multi-material building meshes.
+                    if (instance.model>=4 && instance.model<=6 && distance2>buildingDetailDistance2) {
+                        const float width=(bounds.max.x-bounds.min.x)*instance.scale;
+                        const float depth=(bounds.max.z-bounds.min.z)*instance.scale;
+                        const float height=(bounds.max.y-bounds.min.y)*instance.scale;
+                        if (width>0.0f && depth>0.0f && height>0.0f) {
+                            DrawCubeV({instance.position.x,instance.position.y+height*0.5f,instance.position.z},
+                                      {width,height,depth},Color{136,139,143,255});
+                        }
+                        continue;
+                    }
                     DrawModelEx(it->second,origin,{0,1,0},instance.rotation,
                         {instance.scaleX,instance.scale,instance.scaleZ},WHITE);
                 }
@@ -1227,7 +1248,7 @@ int main(int argc, char** argv) {
                             DrawPlane(Vector3{0,-0.025f,0},Vector2{1500,1500},Color{65,100,65,255});
                             DrawGrid(80,5);
                         }
-                        drawCity(camera.position);
+                        drawCity(camera);
                         // WHITE preserves the imported glTF/GLB base-color textures and materials.
                         // A red tint multiplies every material color and makes the car red.
                         // The visible wheels are part of the GLB chassis mesh;
