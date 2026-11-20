@@ -59,7 +59,7 @@ static std::string resolveCityFile(const std::string& relative) {
 static int cityAdd(lua_State* L) {
     const int chunk=static_cast<int>(luaL_checkinteger(L,1));
     const int model=static_cast<int>(luaL_checkinteger(L,2));
-    if (model<1 || model>8) { luaL_error(L,"invalid city model ID"); return 0; }
+    if (model<1 || model>9) { luaL_error(L,"invalid city model ID"); return 0; }
     if (cityInstanceCount>=cityInstanceLimit) { luaL_error(L,"city instance limit reached"); return 0; }
     const float x=static_cast<float>(luaL_checknumber(L,3));
     const float y=static_cast<float>(luaL_checknumber(L,4));
@@ -103,7 +103,7 @@ static void loadOneCityModel() {
     for (const auto& chunk:cityChunks) {
         for (const auto& sector:chunk.second.sectors) {
             for (const CityInstance& instance:sector.second.instances) {
-                if (cityModels.count(instance.model)||cityMissing.count(instance.model)) continue;
+                if (instance.model==9 || cityModels.count(instance.model)||cityMissing.count(instance.model)) continue;
                 const std::string file=resolveCityFile(cityAssetDirectory+"/"+cityNames[instance.model-1]+".glb");
                 if (!FileExists(file.c_str())) {
                     cityMissing[instance.model]=true;
@@ -150,6 +150,32 @@ static void drawCity(Vector3 cameraPosition) {
                 const float ix=instance.position.x-cameraPosition.x;
                 const float iz=instance.position.z-cameraPosition.z;
                 if (ix*ix+iz*iz>radius2) continue;
+                if (instance.model==9) {
+                    // Urban block: pavement with four raised sidewalk edges.
+                    // Dimensions are supplied in scaleX/scaleZ (world metres).
+                    const float w=instance.scaleX, d=instance.scaleZ;
+                    const float x=instance.position.x,z=instance.position.z;
+                    const Color pavement{111,112,108,255};
+                    const Color sidewalk{169,167,155,255};
+                    const Color curb{135,133,123,255};
+                    // The block ends at +/-34m; roads/intersections remain unobstructed.
+                    DrawCubeV({x,-0.045f,z},{w,0.07f,d},pavement);
+                    const float edge=1.7f;
+                    DrawCubeV({x-w*0.5f+edge*0.5f,0.005f,z},
+                        {edge,0.09f,d},sidewalk);
+                    DrawCubeV({x+w*0.5f-edge*0.5f,0.005f,z},
+                        {edge,0.09f,d},sidewalk);
+                    DrawCubeV({x,0.005f,z-d*0.5f+edge*0.5f},
+                        {w-2*edge,0.09f,edge},sidewalk);
+                    DrawCubeV({x,0.005f,z+d*0.5f-edge*0.5f},
+                        {w-2*edge,0.09f,edge},sidewalk);
+                    // Subtle curbstone strip distinguishes sidewalk from pavement.
+                    DrawCubeV({x-w*0.5f,0.005f,z},{0.2f,0.10f,d},curb);
+                    DrawCubeV({x+w*0.5f,0.005f,z},{0.2f,0.10f,d},curb);
+                    DrawCubeV({x,0.005f,z-d*0.5f},{w,0.10f,0.2f},curb);
+                    DrawCubeV({x,0.005f,z+d*0.5f},{w,0.10f,0.2f},curb);
+                    continue;
+                }
                 const auto it=cityModels.find(instance.model);
                 if (it!=cityModels.end())
                     {
