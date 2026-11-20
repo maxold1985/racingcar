@@ -117,7 +117,7 @@ static void loadOSMRoads() {
  // Lightweight OSM traffic: endpoint graph, deterministic random junction choices.
 struct TrafficEdge { int a=-1,b=-1; };
 struct TrafficNode { Vector3 position{}; std::vector<int> edges; };
-struct TrafficAgent { int node=-1, edge=-1, destination=-1; float distance=0, speed=9; Vector3 position{}; float heading=0; };
+struct TrafficAgent { int node=-1, edge=-1, destination=-1, previous=-1; float distance=0, speed=9; Vector3 position{}; float heading=0; };
 static std::vector<TrafficNode> trafficNodes;
 static std::vector<TrafficEdge> trafficEdges;
 static std::vector<TrafficAgent> trafficAgents;
@@ -129,7 +129,7 @@ static std::uint32_t trafficRandom() {
 static std::int64_t trafficKey(Vector3 p) {
     const std::int64_t x=static_cast<std::int64_t>(std::llround(p.x));
     const std::int64_t z=static_cast<std::int64_t>(std::llround(p.z));
-    return (x<<32)^static_cast<std::uint32_t>(z);
+    return static_cast<std::int64_t>((static_cast<std::uint64_t>(static_cast<std::uint32_t>(x))<<32) | static_cast<std::uint32_t>(z));
 }
 static void initTraffic() {
     trafficNodes.clear(); trafficEdges.clear(); trafficAgents.clear();
@@ -164,7 +164,7 @@ static bool trafficNext(TrafficAgent& car) {
         const int candidate=edges[trafficRandom()%edges.size()];
         const auto& e=trafficEdges[candidate];
         const int other=e.a==car.node?e.b:e.a;
-        if (other!=car.destination || edges.size()==1) { chosen=candidate; break; }
+        if (other!=car.previous || edges.size()==1) { chosen=candidate; break; }
     }
     if (chosen<0) chosen=edges[trafficRandom()%edges.size()];
     const auto& e=trafficEdges[chosen];
@@ -198,6 +198,7 @@ static void updateTraffic(float dt,Vector3 focus) {
             const auto& e=trafficEdges[nearby[trafficRandom()%nearby.size()]];
             car.node=(trafficRandom()&1)?e.a:e.b;
             car.destination=-1;
+            car.previous=-1;
             car.speed=7.0f+static_cast<float>(trafficRandom()%700)/100.0f;
             car.position=trafficNodes[car.node].position;
             if (!trafficNext(car)) {car.node=-1;continue;}
@@ -208,7 +209,7 @@ static void updateTraffic(float dt,Vector3 focus) {
             const Vector3 b=trafficNodes[car.destination].position;
             const Vector3 delta=Vector3Subtract(b,a);
             const float length=Vector3Length(delta);
-            if (length<0.001f) {car.node=car.destination;if(!trafficNext(car))break;continue;}
+            if (length<0.001f) {car.previous=car.node;car.node=car.destination;if(!trafficNext(car))break;continue;}
             const float move=std::min(remaining,length-car.distance);
             car.distance+=move; remaining-=move;
             const float t=std::clamp(car.distance/length,0.0f,1.0f);
@@ -216,6 +217,7 @@ static void updateTraffic(float dt,Vector3 focus) {
             car.position.y=0.85f;
             car.heading=std::atan2(delta.x,delta.z)*RAD2DEG;
             if (car.distance>=length-0.001f) {
+                car.previous=car.node;
                 car.node=car.destination;
                 if (!trafficNext(car)) {car.node=-1;break;}
             }
