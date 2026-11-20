@@ -177,6 +177,42 @@ static void forNearbyOSM(Vector3 camera,float radius,bool buildings,Callback cal
             if (visited.insert(id).second) callback(id);
     }
 }
+// Optional building slots: put predio1.glb, predio2.glb, ... in assets/city/buildings.
+// The slot for each OSM footprint is stable across frames and game sessions.
+struct OSMBuildingAsset { Model model; BoundingBox bounds; };
+static std::vector<OSMBuildingAsset> osmBuildingAssets;
+static void loadOSMBuildingAssets() {
+    for (int slot=1;slot<=32;++slot) {
+        const std::string file=resolveCityFile("assets/city/buildings/predio"+std::to_string(slot)+".glb");
+        if (!FileExists(file.c_str())) continue;
+        Model model=LoadModel(file.c_str());
+        if (!IsModelValid(model)) continue;
+        const BoundingBox bounds=GetModelBoundingBox(model);
+        const Vector3 extent=Vector3Subtract(bounds.max,bounds.min);
+        if (extent.x<=0.001f || extent.y<=0.001f || extent.z<=0.001f) {
+            UnloadModel(model);
+            continue;
+        }
+        osmBuildingAssets.push_back({model,bounds});
+        std::fprintf(stderr,"[OSM] Building slot %d: %s\\n",slot,file.c_str());
+    }
+}
+static std::uint32_t osmBuildingHash(std::size_t id) {
+    std::uint32_t v=static_cast<std::uint32_t>(id)^0x9e3779b9u;
+    v^=v>>16;v*=0x7feb352du;v^=v>>15;v*=0x846ca68bu;v^=v>>16;
+    return v;
+}
+static void drawOSMBuildingAsset(std::size_t id,const OSMBuilding& building) {
+    const auto& asset=osmBuildingAssets[osmBuildingHash(id)%osmBuildingAssets.size()];
+    const Vector3 size=Vector3Subtract(asset.bounds.max,asset.bounds.min);
+    const Vector3 center=Vector3Scale(Vector3Add(asset.bounds.min,asset.bounds.max),0.5f);
+    const Vector3 scale{building.dimensions.x/size.x,building.dimensions.y/size.y,
+                        building.dimensions.z/size.z};
+    const Vector3 origin{building.center.x-center.x*scale.x,
+                         building.center.y-center.y*scale.y,
+                         building.center.z-center.z*scale.z};
+    DrawModelEx(asset.model,origin,{0,1,0},0.0f,scale,WHITE);
+}
 static void drawOSMBuildings(Vector3 cameraPosition) {
     constexpr float radius=230.0f;
     forNearbyOSM(cameraPosition,radius+110.0f,true,[&](std::size_t id) {
@@ -188,9 +224,13 @@ static void drawOSMBuildings(Vector3 cameraPosition) {
         const float distance2=dx*dx+dz*dz;
         const Color wall=distance2>100.0f*100.0f ?
             Color{126,134,142,255}:Color{172,170,162,255};
-        DrawCubeV(building.center,building.dimensions,wall);
-        if (distance2<100.0f*100.0f)
-            DrawCubeWiresV(building.center,building.dimensions,Color{91,95,100,255});
+        if (!osmBuildingAssets.empty()) {
+            drawOSMBuildingAsset(id,building);
+        } else {
+            DrawCubeV(building.center,building.dimensions,wall);
+            if (distance2<100.0f*100.0f)
+                DrawCubeWiresV(building.center,building.dimensions,Color{91,95,100,255});
+        }
     });
 }
 static void drawOSMRoads(Vector3 cameraPosition) {
@@ -636,6 +676,7 @@ int main(int argc, char** argv) {
     SetTargetFPS(120);
     loadOSMRoads();
     loadOSMBuildings();
+    loadOSMBuildingAssets();
     indexOSM();
     buildCityMap();
     cityFogShader=LoadShaderFromMemory(cityFogVertex,cityFogFragment);
@@ -1727,6 +1768,8 @@ int main(int argc, char** argv) {
         // UnloadModel owns its material textures, including pavement.
         UnloadModel(pavementModel);
     }
+    for (auto& asset:osmBuildingAssets) UnloadModel(asset.model);
+    osmBuildingAssets.clear();
     if (IsRenderTextureValid(cityMapTexture)) UnloadRenderTexture(cityMapTexture);
     if (IsShaderValid(cityFogShader)) UnloadShader(cityFogShader);
     CloseWindow();
