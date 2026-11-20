@@ -854,7 +854,7 @@ int main(int argc, char** argv) {
     SetTargetFPS(120);
     loadImportedCity(config.city);
     if (!config.roadsShp.empty()) loadSHPRoads(config);
-    else loadOSMRoads();
+    if (!osmRoadsLoaded) loadOSMRoads();
     initTraffic();
     loadOSMBuildings();
     loadOSMBuildingAssets(config);
