@@ -1,5 +1,5 @@
 # racingcar startup configuration (paths relative to THIS file)
-# Supported keys: car, script, pavement, character, idle, walking, jump, enter_car
+# Supported keys: car, script, pavement, character, idle, walking, jump, enter_car, building_slot_1..32
 # Use forward slashes or Windows backslashes; quotes are optional.
 car = "assets/car retro.glb"
 script = scripts/racing_game.luau
@@ -12,3 +12,9 @@ idle =
 walking =
 jump =
 enter_car =
+
+# Optional OSM building model slots (random, stable per building).
+# Add your GLB files to these paths; empty slots are ignored.
+building_slot_1 = assets/city/buildings/predio1.glb
+building_slot_2 = assets/city/buildings/predio2.glb
+# building_slot_3 = assets/city/buildings/predio3.glb
