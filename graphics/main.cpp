@@ -92,6 +92,43 @@ static std::string resolveCityFile(const std::string& relative) {
     }
     return relative;
 }
+
+// Optional imported city scene (GLB). Coordinates are in meters, Y up.
+// The GLB must be exported around a local origin in Blender/QGIS.
+static Model importedCityModel{};
+static bool importedCityLoaded=false;
+static BoundingBox importedCityBounds{};
+static void loadImportedCity(const std::string& path) {
+    if (path.empty()) return;
+    if (!IsFileExtension(path.c_str(), ".glb;.gltf")) {
+        std::fprintf(stderr, "[City GLB] Unsupported extension: %s\n", path.c_str());
+        return;
+    }
+    if (!FileExists(path.c_str())) {
+        std::fprintf(stderr, "[City GLB] File not found: %s\n", path.c_str());
+        return;
+    }
+    importedCityModel=LoadModel(path.c_str());
+    importedCityLoaded=IsModelValid(importedCityModel);
+    if (!importedCityLoaded) {
+        std::fprintf(stderr, "[City GLB] Import failed: %s\n", path.c_str());
+        return;
+    }
+    importedCityBounds=GetModelBoundingBox(importedCityModel);
+    std::fprintf(stderr, "[City GLB] Loaded %s (%d meshes, %d materials)\n",
+                 path.c_str(), importedCityModel.meshCount, importedCityModel.materialCount);
+}
+static void drawImportedCity(Vector3 cameraPosition) {
+    if (!importedCityLoaded) return;
+    // Cull the complete model when its bounding box is far from the camera.
+    // For large cities, export separate GLB tiles instead of one giant mesh.
+    const float nearestX=std::clamp(cameraPosition.x,importedCityBounds.min.x,importedCityBounds.max.x);
+    const float nearestZ=std::clamp(cameraPosition.z,importedCityBounds.min.z,importedCityBounds.max.z);
+    const float dx=cameraPosition.x-nearestX, dz=cameraPosition.z-nearestZ;
+    if (dx*dx+dz*dz>700.0f*700.0f) return;
+    DrawModel(importedCityModel,{0,0,0},1.0f,WHITE);
+}
+
 struct OSMRoadSegment { Vector3 a; Vector3 b; float width; };
 static std::vector<OSMRoadSegment> osmRoads;
 static bool osmRoadsLoaded=false;
@@ -798,6 +835,7 @@ int main(int argc, char** argv) {
     InitWindow(1280,720,"racingcar - Luau raycast racing");
     if (!IsWindowReady()) return 1;
     SetTargetFPS(120);
+    loadImportedCity(config.city);
     loadOSMRoads();
     initTraffic();
     loadOSMBuildings();
@@ -1661,6 +1699,7 @@ int main(int argc, char** argv) {
                             // OSM geometry uses its own asphalt/wall colors.
                             // Do not apply the city fog shader: its sky-color blend
                             // washes out roads and buildings.
+                            drawImportedCity(camera.position);
                             drawOSMRoads(camera.position);
                             drawOSMBuildings(camera.position);
                             drawTraffic();
@@ -1904,6 +1943,7 @@ int main(int argc, char** argv) {
             unloadCity();
         }
     }
+    if (importedCityLoaded) UnloadModel(importedCityModel);
     chassis.unload();
     if (pavementLoaded) {
         // UnloadModel owns its material textures, including pavement.
