@@ -5,6 +5,10 @@ car = "assets/car retro.glb"
 script = scripts/racing_game.luau
 pavement = assets/pavimento.webp
 
+# Optional city GLB, exported in meters with Y up and local origin.
+# This is a visual mesh; vehicle collisions still use the existing physics.
+city = assets/city/londrina.glb
+
 # Optional character and Mixamo FBX animations.
 # Empty values disable the optional asset.
 character =
