@@ -200,10 +200,10 @@ static void buildCityMap() {
 static void drawCityMap(Vector3 playerPosition,bool expanded) {
     if (!IsRenderTextureValid(cityMapTexture)) return;
     const int screenW=GetScreenWidth(),screenH=GetScreenHeight();
-    const float size=expanded?static_cast<float>(std::min(screenW-80,screenH-100)):220.0f;
+    const float size=expanded?static_cast<float>(std::min(screenW-32,screenH-72)):220.0f;
     const float left=expanded?(screenW-size)*0.5f:static_cast<float>(screenW)-size-20.0f;
     const float top=expanded?(screenH-size)*0.5f:20.0f;
-    if (expanded) DrawRectangle(0,0,screenW,screenH,Fade(BLACK,0.85f));
+    if (expanded) DrawRectangle(0,0,screenW,screenH,Color{12,20,27,255});
     DrawRectangleRec({left-4,top-4,size+8,size+8},Color{9,13,19,255});
     DrawTexturePro(cityMapTexture.texture,
         {0,0,static_cast<float>(cityMapPixels),-static_cast<float>(cityMapPixels)},
@@ -217,7 +217,7 @@ static void drawCityMap(Vector3 playerPosition,bool expanded) {
         DrawCircleLines(static_cast<int>(marker.x),static_cast<int>(marker.y),
                         expanded?12.0f:9.0f,WHITE);
     }
-    DrawText(expanded?"LONDRINA - MAPA IMPORTADO (M: FECHAR)":"LONDRINA  [M: MAPA]",
+    DrawText(expanded?"LONDRINA - MAPA DA CIDADE  |  F2: VOLTAR":"LONDRINA  [F2: MAPA]",
              static_cast<int>(left),static_cast<int>(top+size+8),expanded?18:14,RAYWHITE);
 }
 static int cityAdd(lua_State* L) {
@@ -902,7 +902,7 @@ int main(int argc, char** argv) {
 
                     bool cityMapExpanded=false;
                     while (!WindowShouldClose()) {
-                        if (IsKeyPressed(KEY_M)) cityMapExpanded=!cityMapExpanded;
+                        if (IsKeyPressed(KEY_F2)) cityMapExpanded=!cityMapExpanded;
                         float frame=std::min(GetFrameTime(),0.1f);
                         accumulator+=frame;
                         // Garage shop: U purchases a permanent payout upgrade.
@@ -1510,7 +1510,8 @@ int main(int argc, char** argv) {
                         // Tire meshes intentionally hidden. Physics raycasts,
                         // steering, anti-roll and tire forces still run normally.
                         EndMode3D();
-                        if (osmRoadsLoaded) drawCityMap(player.insideCar?toRay(state.position):player.position(),cityMapExpanded);
+                        if (osmRoadsLoaded && !cityMapExpanded)
+                            drawCityMap(player.insideCar?toRay(state.position):player.position(),false);
                         DrawRectangle(10,10,670,226,Fade(BLACK,0.70f));
                         DrawText(TextFormat("Speed: %.1f km/h",state.speed_kmh),20,20,24,RAYWHITE);
                         DrawText(player.insideCar ?
@@ -1647,6 +1648,16 @@ int main(int argc, char** argv) {
                                       20,544,18,vehicleCondition<100.0f?YELLOW:GREEN);
                          }
                          DrawFPS(GetScreenWidth()-100,20);
+                         // F2 map is the only visible layer: it covers the 3D scene and HUD.
+                         if (cityMapExpanded) {
+                             if (osmRoadsLoaded)
+                                 drawCityMap(player.insideCar?toRay(state.position):player.position(),true);
+                             else {
+                                 DrawRectangle(0,0,GetScreenWidth(),GetScreenHeight(),Color{12,20,27,255});
+                                 DrawText("MAPA DE LONDRINA NAO IMPORTADO",30,40,24,RAYWHITE);
+                                 DrawText("Importe os dados OSM e pressione F2 para voltar",30,80,18,GRAY);
+                             }
+                         }
                         EndDrawing();
                     }
                     player.unload();
