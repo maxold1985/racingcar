@@ -50,6 +50,7 @@ bool LoadGameConfig(const std::string& filename, RVGameConfig& out) {
         if(key=="car") target=&loaded.car;
         else if(key=="script") target=&loaded.script;
         else if(key=="pavement") target=&loaded.pavement;
+        else if(key=="city") target=&loaded.city;
         else if(key=="character") target=&loaded.character;
         else if(key=="idle") target=&loaded.idle;
         else if(key=="walking") target=&loaded.walking;
