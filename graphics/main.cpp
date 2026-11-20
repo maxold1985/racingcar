@@ -1512,11 +1512,25 @@ int main(int argc, char** argv) {
                         BeginDrawing();
                         ClearBackground(Color{125,180,220,255});
                         BeginMode3D(camera);
-                        if (pavementLoaded) {
-                            DrawModel(pavementModel,Vector3{0,-0.025f,0},1.0f,WHITE);
-                        } else {
-                            DrawPlane(Vector3{0,-0.025f,0},Vector2{1500,1500},Color{65,100,65,255});
-                            DrawGrid(80,5);
+                        // Recycle a 3x3 ground grid around the camera. Each tile
+                        // is 1500m wide, so driving beyond the original map origin
+                        // never exposes an empty edge. No mesh/texture reallocation.
+                        constexpr float groundTileSize=1500.0f;
+                        const float groundX=std::floor(camera.position.x/groundTileSize)*groundTileSize;
+                        const float groundZ=std::floor(camera.position.z/groundTileSize)*groundTileSize;
+                        for (int tileZ=-1;tileZ<=1;++tileZ) {
+                            for (int tileX=-1;tileX<=1;++tileX) {
+                                const Vector3 tileCenter{
+                                    groundX+tileX*groundTileSize+groundTileSize*0.5f,
+                                    -0.025f,
+                                    groundZ+tileZ*groundTileSize+groundTileSize*0.5f
+                                };
+                                if (pavementLoaded)
+                                    DrawModel(pavementModel,tileCenter,1.0f,WHITE);
+                                else
+                                    DrawPlane(tileCenter,Vector2{groundTileSize,groundTileSize},
+                                              Color{65,100,65,255});
+                            }
                         }
                         if (osmRoadsLoaded) {
                             // OSM geometry uses its own asphalt/wall colors.
