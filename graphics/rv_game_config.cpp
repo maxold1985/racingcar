@@ -58,7 +58,7 @@ bool LoadGameConfig(const std::string& filename, RVGameConfig& out) {
         else if(key.rfind("building_slot_",0)==0) {
             const std::string suffix=key.substr(14);
             const bool digits=!suffix.empty() && std::all_of(suffix.begin(),suffix.end(),[](unsigned char c){return std::isdigit(c)!=0;});
-            if(digits) {
+            if(digits && suffix.size()<=2) {
                 const unsigned long slot=std::stoul(suffix);
                 if(slot>=1 && slot<=loaded.buildingSlots.size()) target=&loaded.buildingSlots[slot-1];
             }
