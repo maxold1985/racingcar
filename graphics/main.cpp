@@ -81,6 +81,19 @@ static int cityAdd(lua_State* L) {
     cityChunks[chunk].sectors[key].instances.push_back({model,{x,y,z},rotation,scale,scaleX,scaleZ});
     ++cityChunks[chunk].count;
     ++cityInstanceCount;
+    // Log only the first few instances per road type to avoid flooding stdout.
+    if (model==1 || model==2) {
+        static int loggedStraight=0;
+        static int loggedIntersection=0;
+        int& logged=(model==1)?loggedStraight:loggedIntersection;
+        if (logged<12) {
+            std::fprintf(stderr,
+                "[CITY ROTATION] model=%s chunk=%d pos=(%.2f, %.2f, %.2f) yaw=%.1f deg scale=%.3f\\n",
+                model==1?"Street_2Lane":"Street_4WayIntersection",
+                chunk, x, y, z, rotation, scale);
+            ++logged;
+        }
+    }
     return 0;
 }
 static int cityRemove(lua_State* L) {
