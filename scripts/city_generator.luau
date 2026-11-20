@@ -48,7 +48,7 @@ local function spawnChunk(cx,cz)
         end
     end
 
-    -- One building per interior lot. No buildings inside road corridors.
+    -- Each 90m square has a 68m paved interior, leaving the 18m\n    -- intersection footprint and a 2m setback at its boundaries.\n    for ix=0,1 do\n        for iz=0,1 do\n            CityWorld.add(id,9,ox+ix*BLOCK_SPACING+45,0,\n                oz+iz*BLOCK_SPACING+45,0,1,68,68)\n        end\n    end\n\n    -- One building per interior lot. No buildings inside road corridors.
     for ix=0,1 do
         for iz=0,1 do
             local bx,bz=ox+ix*BLOCK_SPACING,oz+iz*BLOCK_SPACING
